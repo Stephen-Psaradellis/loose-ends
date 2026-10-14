@@ -1,0 +1,7 @@
+name = "loose-ends-voice"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# Workers AI (Whisper). No secrets: the endpoint takes audio, returns text, keeps nothing.
+[ai]
+binding = "AI"

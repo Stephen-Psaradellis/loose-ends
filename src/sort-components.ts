@@ -9,3 +9,6 @@ export const CardTag = createComponent('LooseEndsCard', {
 export const TrayTag = createComponent('LooseEndsTray', {
   trayIndex: { type: Types.Int32, default: 0 },
 });
+
+/** The mic orb: pinch, click or dwell on it to talk. */
+export const MicTag = createComponent('LooseEndsMic', {});

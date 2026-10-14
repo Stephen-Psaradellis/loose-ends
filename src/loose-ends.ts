@@ -16,6 +16,7 @@ import {
   Raycaster,
   RayInteractable,
   RingGeometry,
+  SphereGeometry,
   SRGBColorSpace,
   Vector3,
   VisibilityState,
@@ -23,8 +24,10 @@ import {
   type Intersection,
 } from '@iwsdk/core';
 import { Dwell } from './dwell.js';
+import { Mic, type MicState } from './mic.js';
 import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type TrayId } from './sort.js';
-import { CardTag, TrayTag } from './sort-components.js';
+import { CardTag, MicTag, TrayTag } from './sort-components.js';
+import { parseUtterance } from './voice.js';
 
 // Seated layout, metres. The viewer's head sits near (0, 1.2-1.6, 0) facing -z.
 const TRAY_Y = 0.95;
@@ -40,6 +43,10 @@ const DRAG_MIN = 0.06;
 const DWELL_SECONDS = 1.2;
 /** A pinch on a card the gaze just selected confirms it rather than toggling it off. */
 const GAZE_GRACE = 1.0;
+const MIC_POS = [0.62, 1.12, -0.5] as const;
+const CAPTION_Y = 1.5;
+const ROW_MAX = 4;
+const PROMPT = "Say what's on your mind - tap the orb, or look at it.";
 const DEMO_CARDS = ['Call the dentist', 'Reply to Sam about Saturday', 'Fix the bike light'];
 
 const TRAY_COLORS: Record<TrayId, string> = {
@@ -87,6 +94,7 @@ export class LooseEndsSystem extends createSystem({
   heldCards: { required: [CardTag, Grabbed] },
   pressedCards: { required: [CardTag, Pressed] },
   pressedTrays: { required: [TrayTag, Pressed] },
+  pressedMic: { required: [MicTag, Pressed] },
 }) {
   sort!: Sort;
   private cardEntities = new Map<number, Entity>();
@@ -113,6 +121,10 @@ export class LooseEndsSystem extends createSystem({
   private home = new Map<number, Vector3>();
   /** Last input events, newest last; read in the emulator to debug input paths. */
   readonly trace: string[] = [];
+  mic!: Mic;
+  private orb!: Mesh;
+  private caption!: Mesh;
+  private captionText = '';
 
   private note(s: string): void {
     this.trace.push(s);
@@ -168,6 +180,32 @@ export class LooseEndsSystem extends createSystem({
     this.reticle.visible = false;
     this.world.createTransformEntity(this.reticle);
 
+    // Voice: the orb starts and stops a clip; the caption says what was heard (always
+    // captioned, so voice is never the only channel - Accessibility Forward).
+    this.orb = new Mesh(
+      new SphereGeometry(0.045, 24, 16),
+      new MeshStandardMaterial({ color: '#e8b04a', emissive: '#3a2a10', roughness: 0.4 }),
+    );
+    this.orb.position.set(...MIC_POS);
+    const orbEntity = this.world.createTransformEntity(this.orb);
+    orbEntity.addComponent(MicTag);
+    orbEntity.addComponent(RayInteractable);
+    this.gazeKeys.set(this.orb, 'mic');
+    this.layout();
+    this.caption = new Mesh(new PlaneGeometry(0.9, 0.1125), new MeshBasicMaterial({ transparent: true }));
+    this.caption.position.set(0, CAPTION_Y, LOOSE_Z - 0.05);
+    this.caption.raycast = () => {};
+    this.world.createTransformEntity(this.caption);
+    this.say(PROMPT);
+    this.mic = new Mic(
+      (text) => this.hear(text),
+      (state, detail) => this.micState(state, detail),
+    );
+    this.queries.pressedMic.subscribe('qualify', () => {
+      this.note('press mic');
+      this.mic.toggle();
+    });
+
     // Pinch-drag path: a card released over a tray goes in it; anywhere else it floats back.
     this.queries.heldCards.subscribe('disqualify', (entity) => {
       const id = entity.getValue(CardTag, 'cardId') as number;
@@ -203,6 +241,77 @@ export class LooseEndsSystem extends createSystem({
         this.layout();
       }
     });
+  }
+
+  /** Show a line on the caption strip (and speak it when the browser can). */
+  say(text: string, speak = false): void {
+    if (text === this.captionText) return;
+    this.captionText = text;
+    const m = this.caption.material as MeshBasicMaterial;
+    m.map?.dispose();
+    m.map = textTexture(text, 'rgba(20,18,26,0.75)', '#f4efe6', 1024, 128);
+    m.needsUpdate = true;
+    if (speak && globalThis.speechSynthesis) {
+      speechSynthesis.cancel();
+      speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+  }
+
+  private micState(state: MicState, detail?: string): void {
+    this.note(`mic ${state}`);
+    const m = this.orb.material as MeshStandardMaterial;
+    m.emissive.set(state === 'listening' ? '#c0392b' : state === 'thinking' ? '#5fa8d3' : '#3a2a10');
+    if (state === 'listening') this.say('Listening... tap or look at the orb again when you are done.');
+    else if (state === 'thinking') this.say('Writing that down...');
+    else if (state === 'error') this.say(detail ?? 'Voice did not work - pinch or look instead.');
+  }
+
+  /** One transcript in: a command on the sort, or new cards. Same calls as hands and gaze. */
+  hear(transcript: string): void {
+    const u = parseUtterance(transcript, this.sort.cards);
+    this.note(`hear ${u.kind}`);
+    const name = (id: number) => this.sort.get(id)?.text ?? '';
+    switch (u.kind) {
+      case 'undo': {
+        const c = this.sort.undo();
+        this.layout();
+        this.say(c ? `Undone: ${c.text}` : 'Nothing to undo.');
+        break;
+      }
+      case 'done': {
+        const t = this.sort.inTray('tomorrow').map((c) => c.text);
+        this.say(t.length ? `Tomorrow: ${t.slice(0, 3).join(', ')}${t.length > 3 ? '...' : ''}` : 'Nothing for tomorrow. Rest well.', true);
+        break;
+      }
+      case 'select':
+        this.select(u.cardId);
+        this.say(`${name(u.cardId)} - which tray?`);
+        break;
+      case 'move':
+        this.selected = null;
+        this.send(u.cardId, u.tray);
+        this.say(`${name(u.cardId)} -> ${TRAYS.find((t) => t.id === u.tray)!.label}`);
+        break;
+      case 'tray': {
+        const label = TRAYS.find((t) => t.id === u.tray)!.label;
+        if (this.selected == null) {
+          this.say(`Which card goes to ${label}? Say its name, look at it, or pinch it.`);
+          break;
+        }
+        const id = this.selected;
+        this.selected = null;
+        this.send(id, u.tray);
+        this.say(`${name(id)} -> ${label}`);
+        break;
+      }
+      case 'capture':
+        u.cards.forEach((c) => this.addCard(c.text));
+        this.layout();
+        this.say(u.cards.length === 1 ? `Added: ${u.cards[0].text}` : `Added ${u.cards.length} cards.`);
+        break;
+      default:
+        this.say("Didn't catch that - try again.");
+    }
   }
 
   addCard(text: string): void {
@@ -262,7 +371,9 @@ export class LooseEndsSystem extends createSystem({
     if (!fired) return;
     this.note(`gaze ${fired}`);
     const [kind, value] = fired.split(':');
-    if (kind === 'card') {
+    if (kind === 'mic') {
+      this.mic.toggle();
+    } else if (kind === 'card') {
       this.select(Number(value), 'gaze');
     } else if (this.selected != null) {
       const id = this.selected;
@@ -292,13 +403,17 @@ export class LooseEndsSystem extends createSystem({
     saveSort(this.sort, globalThis.localStorage);
     // Only loose cards and the trays are gaze targets; a card already in a tray is done.
     this.gazeTargets.length = TRAYS.length;
+    if (this.orb) this.gazeTargets.push(this.orb);
     const loose = this.sort.loose;
     for (const card of loose) this.gazeTargets.push(this.cardEntities.get(card.id)!.object3D!);
+    // Rows of ROW_MAX, stacking upward, so a long ramble stays within arm's reach.
     loose.forEach((card, i) => {
       const o = this.cardEntities.get(card.id)!.object3D!;
-      const x = (i - (loose.length - 1) / 2) * (CARD_W + 0.03);
+      const row = Math.floor(i / ROW_MAX);
+      const inRow = Math.min(ROW_MAX, loose.length - row * ROW_MAX);
+      const x = ((i % ROW_MAX) - (inRow - 1) / 2) * (CARD_W + 0.03);
       const lift = card.id === this.selected ? 0.04 : 0;
-      o.position.set(x, LOOSE_Y + lift, LOOSE_Z + Math.abs(x) * 0.25);
+      o.position.set(x, LOOSE_Y + row * (CARD_H + 0.03) + lift, LOOSE_Z + Math.abs(x) * 0.25);
       o.rotation.set(0, -x * 0.6, 0);
       o.scale.setScalar(card.id === this.selected ? 1.12 : 1);
       this.remember(card.id, o.position);
