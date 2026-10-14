@@ -12,3 +12,8 @@ export const TrayTag = createComponent('LooseEndsTray', {
 
 /** The mic orb: pinch, click or dwell on it to talk. */
 export const MicTag = createComponent('LooseEndsMic', {});
+
+/** A button beside the orb; action keys into BUTTONS (0 = undo, 1 = done). */
+export const ButtonTag = createComponent('LooseEndsButton', {
+  action: { type: Types.Int32, default: 0 },
+});

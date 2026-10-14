@@ -24,10 +24,14 @@ recognition, so the clip goes to a small Cloudflare Worker (`worker/`) that runs
 Whisper on Workers AI and returns text; the audio is not stored. Commands are
 parsed on the device (`src/voice.ts`), so they never wait on a model.
 
-Coming: settings (contrast, text size, one-hand mode), the plant shelf that
-grows between sessions, the first-five-minutes guide.
+Undo and "Done for tonight" are also buttons, so every spoken command has a
+pinch and a look-at-it twin. Done reads back tomorrow's cards and grows the
+plant on the shelf by one leaf - once per evening, kept on the device - until it
+flowers after twelve evenings.
 
-Tests: `npm test` (vitest - the sort model, dwell timing, save/load, the voice parser).
+Coming: settings (contrast, text size, one-hand mode), the first-five-minutes guide.
+
+Tests: `npm test` (vitest - the sort model, dwell timing, save/load, the voice parser, the plant).
 
 ## Run it
 
