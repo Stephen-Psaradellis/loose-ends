@@ -56,6 +56,56 @@ export class Sort {
   get loose(): Card[] {
     return this.inTray(null);
   }
+
+  /** What survives a session. The undo stack does not: undo is for this evening only. */
+  toJSON(): SavedSort {
+    return { v: 1, nextId: this.nextId, cards: this.cards.map((c) => ({ ...c })) };
+  }
+
+  /** Rebuild from saved data; anything malformed yields null so the caller starts fresh. */
+  static from(data: unknown): Sort | null {
+    if (!data || typeof data !== 'object') return null;
+    const d = data as Partial<SavedSort>;
+    if (d.v !== 1 || !Array.isArray(d.cards) || typeof d.nextId !== 'number') return null;
+    const ids = new Set(TRAYS.map((t) => t.id));
+    const sort = new Sort();
+    for (const c of d.cards) {
+      if (!c || typeof c.id !== 'number' || typeof c.text !== 'string') return null;
+      if (c.tray !== null && !ids.has(c.tray)) return null;
+      sort.cards.push({ id: c.id, text: c.text, tray: c.tray });
+    }
+    sort.nextId = Math.max(d.nextId, ...sort.cards.map((c) => c.id + 1), 1);
+    return sort;
+  }
+}
+
+export interface SavedSort {
+  v: 1;
+  nextId: number;
+  cards: Card[];
+}
+
+const STORE_KEY = 'loose-ends:v1';
+
+/** Load the saved sort; null when there is none, it is unreadable, or storage is blocked. */
+export function loadSort(storage: Pick<Storage, 'getItem'> | undefined): Sort | null {
+  try {
+    const raw = storage?.getItem(STORE_KEY);
+    return raw ? Sort.from(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save the sort; returns false when storage is unavailable (private mode, quota). */
+export function saveSort(sort: Sort, storage: Pick<Storage, 'setItem'> | undefined): boolean {
+  try {
+    if (!storage) return false;
+    storage.setItem(STORE_KEY, JSON.stringify(sort.toJSON()));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Which tray a released card landed over, given tray centres on the x axis. */

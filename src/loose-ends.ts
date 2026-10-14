@@ -9,14 +9,21 @@ import {
   MeshStandardMaterial,
   MovementMode,
   OneHandGrabbable,
+  CircleGeometry,
+  Object3D,
   PlaneGeometry,
   Pressed,
+  Raycaster,
   RayInteractable,
+  RingGeometry,
   SRGBColorSpace,
   Vector3,
+  VisibilityState,
   type Entity,
+  type Intersection,
 } from '@iwsdk/core';
-import { Sort, TRAYS, trayAt, type TrayId } from './sort.js';
+import { Dwell } from './dwell.js';
+import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type TrayId } from './sort.js';
 import { CardTag, TrayTag } from './sort-components.js';
 
 // Seated layout, metres. The viewer's head sits near (0, 1.2-1.6, 0) facing -z.
@@ -30,6 +37,10 @@ const CARD_H = 0.1;
 const LOOSE_Y = 1.3;
 const LOOSE_Z = -0.62;
 const DRAG_MIN = 0.06;
+const DWELL_SECONDS = 1.2;
+/** A pinch on a card the gaze just selected confirms it rather than toggling it off. */
+const GAZE_GRACE = 1.0;
+const DEMO_CARDS = ['Call the dentist', 'Reply to Sam about Saturday', 'Fix the bike light'];
 
 const TRAY_COLORS: Record<TrayId, string> = {
   tomorrow: '#e8b04a',
@@ -77,8 +88,25 @@ export class LooseEndsSystem extends createSystem({
   pressedCards: { required: [CardTag, Pressed] },
   pressedTrays: { required: [TrayTag, Pressed] },
 }) {
-  readonly sort = new Sort();
+  sort!: Sort;
   private cardEntities = new Map<number, Entity>();
+  /** Head-gaze dwell: every action reachable by looking alone (Accessibility Forward). */
+  gazeDwell = true;
+  private dwell = new Dwell(DWELL_SECONDS);
+  // A head ray is not something RayInteractable models (IWSDK's GazeSystem needs an
+  // eye-tracked transient pointer, which Quest Browser does not expose), so this one
+  // Raycaster is the exception to the "no manual Raycaster" rule.
+  private ray = new Raycaster();
+  private gazeTargets: Object3D[] = [];
+  private gazeKeys = new Map<Object3D, string>();
+  private hits: Intersection[] = [];
+  private head = new Vector3();
+  private dir = new Vector3();
+  private reticle = new Object3D();
+  private reticleFill!: Mesh;
+  private selectedBy: 'gaze' | 'hand' = 'hand';
+  private selectedAt = 0;
+  private now = 0;
   private trayCentres: { id: TrayId; x: number; z: number }[] = [];
   private selected: number | null = null;
   private tmp = new Vector3();
@@ -115,12 +143,30 @@ export class LooseEndsSystem extends createSystem({
       e.addComponent(TrayTag, { trayIndex: i });
       e.addComponent(RayInteractable);
       this.trayCentres.push({ id: tray.id, x, z: TRAY_Z });
+      this.gazeTargets.push(box);
+      this.gazeKeys.set(box, `tray:${tray.id}`);
     });
 
-    for (const text of ['Call the dentist', 'Reply to Sam about Saturday', 'Fix the bike light']) {
-      this.addCard(text);
-    }
+    // Last evening's sort comes back; a first visit gets three example cards.
+    const saved = loadSort(globalThis.localStorage);
+    this.sort = saved ?? new Sort();
+    if (saved) saved.cards.forEach((c) => this.spawn(c));
+    else DEMO_CARDS.forEach((text) => this.addCard(text));
     this.layout();
+
+    // Gaze reticle: an outline ring with a disc that fills as the dwell completes.
+    const ring = new Mesh(
+      new RingGeometry(0.011, 0.014, 32),
+      new MeshBasicMaterial({ color: '#f4efe6', transparent: true, opacity: 0.8, depthTest: false }),
+    );
+    this.reticleFill = new Mesh(
+      new CircleGeometry(0.011, 32),
+      new MeshBasicMaterial({ color: '#e8b04a', transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    ring.renderOrder = this.reticleFill.renderOrder = 10;
+    this.reticle.add(ring, this.reticleFill);
+    this.reticle.visible = false;
+    this.world.createTransformEntity(this.reticle);
 
     // Pinch-drag path: a card released over a tray goes in it; anywhere else it floats back.
     this.queries.heldCards.subscribe('disqualify', (entity) => {
@@ -141,8 +187,12 @@ export class LooseEndsSystem extends createSystem({
 
     // Select-then-tray path (rays and mouse today; gaze dwell and voice drive the same calls).
     this.queries.pressedCards.subscribe('qualify', (entity) => {
-      this.note(`press card ${entity.getValue(CardTag, 'cardId')}`);
-      this.select(entity.getValue(CardTag, 'cardId') as number);
+      const id = entity.getValue(CardTag, 'cardId') as number;
+      this.note(`press card ${id}`);
+      // Looking at a card then pinching it is one intent, not select-then-deselect.
+      const confirming =
+        this.selected === id && this.selectedBy === 'gaze' && this.now - this.selectedAt < GAZE_GRACE;
+      if (!confirming) this.select(id);
     });
     this.queries.pressedTrays.subscribe('qualify', (entity) => {
       const tray = TRAYS[entity.getValue(TrayTag, 'trayIndex') as number].id;
@@ -156,7 +206,10 @@ export class LooseEndsSystem extends createSystem({
   }
 
   addCard(text: string): void {
-    const card = this.sort.add(text);
+    this.spawn(this.sort.add(text));
+  }
+
+  private spawn(card: Card): void {
     const mesh = new Mesh(
       new PlaneGeometry(CARD_W, CARD_H),
       new MeshBasicMaterial({ map: textTexture(card.text, '#f4efe6', '#26222b') }),
@@ -171,11 +224,51 @@ export class LooseEndsSystem extends createSystem({
       scale: false,
     });
     this.cardEntities.set(card.id, e);
+    this.gazeKeys.set(mesh, `card:${card.id}`);
   }
 
-  select(id: number): void {
-    this.selected = this.selected === id ? null : id;
+  select(id: number, by: 'gaze' | 'hand' = 'hand'): void {
+    this.selected = by === 'hand' && this.selected === id ? null : id;
+    this.selectedBy = by;
+    this.selectedAt = this.now;
     this.layout();
+  }
+
+  update(delta: number): void {
+    this.now += delta;
+    const inXR = this.world.visibilityState.peek() !== VisibilityState.NonImmersive;
+    // On a flat screen the camera never moves, so dwell would just pick the middle card.
+    if (!this.gazeDwell || !inXR || this.queries.heldCards.entities.size > 0) {
+      this.reticle.visible = false;
+      this.dwell.reset();
+      return;
+    }
+    this.camera.getWorldPosition(this.head);
+    this.camera.getWorldDirection(this.dir);
+    this.ray.set(this.head, this.dir);
+    this.hits.length = 0;
+    this.ray.intersectObjects(this.gazeTargets, false, this.hits);
+    const hit = this.hits[0];
+    const key = hit ? (this.gazeKeys.get(hit.object) ?? null) : null;
+    const fired = this.dwell.update(key, delta);
+    if (hit) {
+      this.reticle.visible = true;
+      this.reticle.position.copy(hit.point).addScaledVector(this.dir, -0.005);
+      this.reticle.lookAt(this.head);
+      this.reticleFill.scale.setScalar(Math.max(0.001, this.dwell.progress));
+    } else {
+      this.reticle.visible = false;
+    }
+    if (!fired) return;
+    this.note(`gaze ${fired}`);
+    const [kind, value] = fired.split(':');
+    if (kind === 'card') {
+      this.select(Number(value), 'gaze');
+    } else if (this.selected != null) {
+      const id = this.selected;
+      this.selected = null;
+      this.send(id, value as TrayId);
+    }
   }
 
   send(id: number, tray: TrayId | null): void {
@@ -194,9 +287,13 @@ export class LooseEndsSystem extends createSystem({
     else this.home.set(id, p.clone());
   }
 
-  /** Put every card where the model says it lives. */
+  /** Put every card where the model says it lives, and keep what the evening sorted. */
   layout(): void {
+    saveSort(this.sort, globalThis.localStorage);
+    // Only loose cards and the trays are gaze targets; a card already in a tray is done.
+    this.gazeTargets.length = TRAYS.length;
     const loose = this.sort.loose;
+    for (const card of loose) this.gazeTargets.push(this.cardEntities.get(card.id)!.object3D!);
     loose.forEach((card, i) => {
       const o = this.cardEntities.get(card.id)!.object3D!;
       const x = (i - (loose.length - 1) / 2) * (CARD_W + 0.03);

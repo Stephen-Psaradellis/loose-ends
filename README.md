@@ -11,9 +11,12 @@ outside a headset).
 
 Status: early build for the Meta Horizon Start Developer Competition 2026.
 Working now: the three trays, pinch-drag (or ray-drag) a card into a tray, and
-select-a-card-then-a-tray. Coming: voice capture and commands, head-gaze dwell,
-settings (contrast, text size, one-hand mode), the plant shelf that grows
-between sessions.
+select-a-card-then-a-tray, head-gaze dwell (look at a card for 1.2 s to pick it,
+then at a tray to drop it - no hands needed), and your sort is kept between
+sessions on the device. Coming: voice capture and commands, settings (contrast,
+text size, one-hand mode), the plant shelf that grows between sessions.
+
+Tests: `npm test` (vitest - the sort model, dwell timing, save/load).
 
 ## Run it
 
