@@ -29,9 +29,20 @@ pinch and a look-at-it twin. Done reads back tomorrow's cards and grows the
 plant on the shelf by one leaf - once per evening, kept on the device - until it
 flowers after twelve evenings.
 
-Coming: settings (contrast, text size, one-hand mode), the first-five-minutes guide.
+Settings (the button above Undo, or say "settings") cover text size 1x / 1.5x / 2x,
+a high-contrast theme, one-hand mode (trays slide toward that hand), how long a
+look takes to count (0.8 / 1.2 / 2 s) and turning look-to-choose off. Each one
+is a button you can pinch or look at, and a phrase you can say ("bigger text",
+"high contrast", "left handed", "slower gaze", "gaze off"). The look-to-choose
+switch itself ignores looks, so nobody can switch off the only input they have
+by accident. Settings are kept on the device.
 
-Tests: `npm test` (vitest - the sort model, dwell timing, save/load, the voice parser, the plant).
+The first visit starts a guide, one line at a time on the caption strip:
+pick a card, give it a tray, say something, press Done. Each line waits for you
+to do the thing, so it is never a wall of text. Doing a later step early skips
+ahead. Say "skip" to leave it or "help" for the list of phrases.
+
+Tests: `npm test` (vitest - the sort model, dwell timing, save/load, the voice parser, the plant, settings, the guide).
 
 ## Run it
 

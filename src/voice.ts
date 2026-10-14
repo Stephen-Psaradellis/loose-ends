@@ -3,6 +3,7 @@
 // voice path when the Worker is unreachable, and the command path always
 // (commands never wait on a model).
 
+import type { PrefChange } from './prefs.js';
 import type { Card, TrayId } from './sort.js';
 
 export type Utterance =
@@ -13,7 +14,30 @@ export type Utterance =
   /** Just a tray ("let it go"): goes to the selected card. */
   | { kind: 'tray'; tray: TrayId }
   | { kind: 'capture'; cards: { text: string; trayHint: TrayId | null }[] }
+  | { kind: 'pref'; change: PrefChange }
+  | { kind: 'settings'; open: boolean }
+  | { kind: 'help' }
+  | { kind: 'skip' }
   | { kind: 'empty' };
+
+// Settings by voice: every button in the settings panel has a phrase.
+const PREF_PHRASES: readonly [RegExp, PrefChange][] = [
+  [/^(?:make (?:it|the text|the cards|text) )?(?:bigger|larger)(?: text| cards| words)?$/, { key: 'text', step: 1 }],
+  [/^(?:make (?:it|the text|the cards|text) )?(?:smaller|normal)(?: text| cards| words| size)?$/, { key: 'text', step: -1 }],
+  [/^(?:high )?contrast(?: mode)?(?: on)?$|^turn on (?:high )?contrast$/, { key: 'contrast', value: true }],
+  [/^(?:high )?contrast(?: mode)? off$|^turn off (?:high )?contrast$|^(?:normal|soft) colou?rs$/, { key: 'contrast', value: false }],
+  [/^(?:left hand(?:ed)?|one hand left)(?: mode)?$/, { key: 'hand', value: 'left' }],
+  [/^(?:right hand(?:ed)?|one hand right)(?: mode)?$/, { key: 'hand', value: 'right' }],
+  [/^(?:both hands|two hands|one hand(?: mode)? off|centre trays|center trays)$/, { key: 'hand', value: 'both' }],
+  [/^(?:slower|longer) (?:look|looking|gaze|dwell)(?: time)?$|^(?:look|gaze|dwell) slower$/, { key: 'dwell', step: 1 }],
+  [/^(?:faster|shorter|quicker) (?:look|looking|gaze|dwell)(?: time)?$|^(?:look|gaze|dwell) faster$/, { key: 'dwell', step: -1 }],
+  [/^(?:gaze|looking|look to choose|head control) off$|^(?:stop|turn off) (?:gaze|looking|look to choose)$/, { key: 'gaze', value: false }],
+  [/^(?:gaze|looking|look to choose|head control) on$|^turn on (?:gaze|looking|look to choose)$/, { key: 'gaze', value: true }],
+];
+const SETTINGS_OPEN = /^(?:open |show )?(?:the )?settings$/;
+const SETTINGS_CLOSE = /^(?:close|hide|exit|leave)(?: the)? settings$|^close$/;
+const HELP = /^(?:help|what can i say|how does this work|show me again|tutorial|start the tutorial)$/;
+const SKIP = /^(?:skip|skip (?:it|this|the tutorial|the tour|the guide)|no thanks)$/;
 
 // Longest phrases first, so "let it go" wins over "go".
 const TRAY_WORDS: readonly [RegExp, TrayId][] = [
@@ -115,6 +139,11 @@ export function parseUtterance(transcript: string, cards: readonly Card[]): Utte
   if (!t) return { kind: 'empty' };
   if (UNDO.test(t)) return { kind: 'undo' };
   if (DONE.test(t)) return { kind: 'done' };
+  if (SETTINGS_CLOSE.test(t)) return { kind: 'settings', open: false };
+  if (SETTINGS_OPEN.test(t)) return { kind: 'settings', open: true };
+  if (HELP.test(t)) return { kind: 'help' };
+  if (SKIP.test(t)) return { kind: 'skip' };
+  for (const [re, change] of PREF_PHRASES) if (re.test(t)) return { kind: 'pref', change };
   const [bare, onlyTray] = splitTray(t);
   if (onlyTray && !bare) return { kind: 'tray', tray: onlyTray };
 
