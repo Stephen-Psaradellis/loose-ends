@@ -5,16 +5,24 @@
 export const TEXT_SIZES = [1, 1.5, 2] as const;
 export const DWELL_TIMES = [0.8, 1.2, 2] as const;
 export const HANDS = ['both', 'left', 'right'] as const;
+/** Scene brightness: dims every surface for a dark room (VRC.Quest.Accessibility.5). */
+export const BRIGHTNESS = [0.5, 0.75, 1] as const;
+/** Degrees the desk turns to the viewer's right (negative: left), so no neck turn is needed (VRC.Quest.Accessibility.7). */
+export const TURNS = [-60, -30, 0, 30, 60] as const;
 
 export type Hand = (typeof HANDS)[number];
-export type PrefKey = 'text' | 'contrast' | 'hand' | 'dwell' | 'gaze' | 'sound';
+export type PrefKey = 'text' | 'contrast' | 'hand' | 'dwell' | 'gaze' | 'sound' | 'bright' | 'turn';
 
 /** A change from any input: step through a list, or set a value outright. */
 export type PrefChange =
-  | { key: 'text' | 'dwell'; step: 1 | -1 }
+  | { key: StepKey; step: 1 | -1 }
+  | { key: 'turn'; value: 0 }
   | { key: 'contrast' | 'gaze' | 'sound'; value: boolean }
   | { key: 'hand'; value: Hand }
   | { key: PrefKey; cycle: true };
+
+type StepKey = 'text' | 'dwell' | 'bright' | 'turn';
+const STEP_LISTS: Record<StepKey, readonly number[]> = { text: TEXT_SIZES, dwell: DWELL_TIMES, bright: BRIGHTNESS, turn: TURNS };
 
 function stepIn<T>(list: readonly T[], current: T, step: number, wrap: boolean): T {
   const i = Math.max(0, list.indexOf(current));
@@ -30,21 +38,23 @@ export class Prefs {
   gaze = true;
   /** Sound cues: a different tone per tray, so where a card went is heard as well as seen. */
   sound = true;
+  bright: number = 1;
+  turn: number = 0;
   /** The first-visit guide has been finished or skipped. */
   guided = false;
 
   /** Apply a change and return the caption that confirms it. */
   apply(c: PrefChange): string {
     if ('cycle' in c) {
-      if (c.key === 'text' || c.key === 'dwell') {
-        const list = c.key === 'text' ? TEXT_SIZES : DWELL_TIMES;
-        this[c.key] = stepIn(list, this[c.key] as (typeof list)[number], 1, true);
+      if (c.key in STEP_LISTS) {
+        const k = c.key as StepKey;
+        this[k] = stepIn(STEP_LISTS[k], this[k], 1, true);
       } else if (c.key === 'hand') this.hand = stepIn(HANDS, this.hand, 1, true);
-      else this[c.key] = !this[c.key];
+      else this[c.key as 'contrast' | 'gaze' | 'sound'] = !this[c.key as 'contrast' | 'gaze' | 'sound'];
     } else if ('step' in c) {
-      const list = c.key === 'text' ? TEXT_SIZES : DWELL_TIMES;
-      this[c.key] = stepIn(list, this[c.key] as (typeof list)[number], c.step, false);
+      this[c.key] = stepIn(STEP_LISTS[c.key], this[c.key], c.step, false);
     } else if (c.key === 'hand') this.hand = c.value;
+    else if (c.key === 'turn') this.turn = c.value;
     else this[c.key] = c.value;
     return this.label(c.key);
   }
@@ -64,12 +74,16 @@ export class Prefs {
         return `Look to choose ${this.gaze ? 'on' : 'off'}`;
       case 'sound':
         return `Sounds ${this.sound ? 'on' : 'off'}`;
+      case 'bright':
+        return `Brightness ${Math.round(this.bright * 100)}%`;
+      case 'turn':
+        return this.turn === 0 ? 'Desk: straight ahead' : `Desk turned ${Math.abs(this.turn)} degrees ${this.turn > 0 ? 'right' : 'left'}`;
     }
   }
 
   toJSON(): SavedPrefs {
-    const { text, contrast, hand, dwell, gaze, sound, guided } = this;
-    return { v: 1, text, contrast, hand, dwell, gaze, sound, guided };
+    const { text, contrast, hand, dwell, gaze, sound, bright, turn, guided } = this;
+    return { v: 1, text, contrast, hand, dwell, gaze, sound, bright, turn, guided };
   }
 
   /** Anything unknown or out of range falls back to its default, field by field. */
@@ -83,6 +97,8 @@ export class Prefs {
     if (typeof d.contrast === 'boolean') p.contrast = d.contrast;
     if (typeof d.gaze === 'boolean') p.gaze = d.gaze;
     if (typeof d.sound === 'boolean') p.sound = d.sound;
+    if ((BRIGHTNESS as readonly unknown[]).includes(d.bright)) p.bright = d.bright as number;
+    if ((TURNS as readonly unknown[]).includes(d.turn)) p.turn = d.turn as number;
     if (typeof d.guided === 'boolean') p.guided = d.guided;
     return p;
   }
@@ -97,6 +113,9 @@ export interface SavedPrefs {
   gaze: boolean;
   /** Absent in saves made before sound cues existed; those load with sound on. */
   sound?: boolean;
+  /** Absent in older saves; those load at full brightness, facing ahead. */
+  bright?: number;
+  turn?: number;
   guided: boolean;
 }
 

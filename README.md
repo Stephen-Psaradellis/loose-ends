@@ -51,11 +51,20 @@ whatever is left when you say "I'm done" stays on the desk. Undo covers check-of
 
 Settings (the button above Undo, or say "settings") cover text size 1x / 1.5x / 2x,
 a high-contrast theme, one-hand mode (trays slide toward that hand), how long a
-look takes to count (0.8 / 1.2 / 2 s), turning look-to-choose off, and sound cues
-on or off. Each one is a button you can pinch or look at, and a phrase you can say
-("bigger text", "high contrast", "left handed", "slower gaze", "gaze off", "mute"). The look-to-choose
+look takes to count (0.8 / 1.2 / 2 s), turning look-to-choose off, sound cues
+on or off, brightness (100 / 75 / 50 %, for a dark room) and turning the whole desk
+30 or 60 degrees left or right so it comes to you without a neck turn. Each one is a
+button you can pinch or look at, and a phrase you can say ("bigger text", "high
+contrast", "left handed", "slower gaze", "gaze off", "mute", "dimmer", "turn right",
+"face me"). The look-to-choose
 switch itself ignores looks, so nobody can switch off the only input they have
 by accident. Settings are kept on the device.
+
+Checked against Meta's accessibility VRCs (VRC.Quest.Accessibility.1-9): sound
+optional and captioned (.1, .3), text to 2x (.2), one hand and no controller (.4),
+brightness and contrast (.5), trays named, not colour-coded alone (.6), desk turn
+(.7), no locomotion needed (.8), seated or standing (.9). `video/probe-a11y.mjs`
+checks .5 and .7 in Chromium under IWER.
 
 Sound cues: every act also plays a short tone, made on the device with Web Audio
 (no files, nothing sent). Each tray has its own: Tomorrow rises, This week holds

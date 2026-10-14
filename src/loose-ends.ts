@@ -65,8 +65,12 @@ const BUTTONS: readonly { action: Action; label: string; y: number }[] = [
   { action: 'done', label: 'Done for tonight', y: 1.05 },
 ];
 const BUTTON_X = -0.62;
-/** The settings panel replaces the loose cards while open: 2 rows of 3, all three inputs. */
-const PANEL: readonly Action[] = ['pref:text', 'pref:contrast', 'pref:hand', 'pref:dwell', 'pref:gaze', 'pref:sound', 'close'];
+/** The settings panel replaces the loose cards while open: 3 rows of 3, all three inputs. */
+const PANEL: readonly Action[] = [
+  'pref:text', 'pref:contrast', 'pref:bright',
+  'pref:hand', 'pref:turn', 'pref:dwell',
+  'pref:gaze', 'pref:sound', 'close',
+];
 const PANEL_W = 0.22;
 const ALL_BUTTONS: readonly Action[] = [...BUTTONS.map((b) => b.action), ...PANEL];
 /** Theme colours [background, text, outline] per surface; high contrast is pure black/white/yellow. */
@@ -275,6 +279,8 @@ export class LooseEndsSystem extends createSystem({
       box.position.x = (i - 1) * gap + shift;
       this.trayCentres[i].x = box.position.x;
     });
+    // Rotating the root turns the whole desk around the viewer; drops are read in root space.
+    this.root.object3D!.rotation.y = (-this.prefs.turn * Math.PI) / 180;
     this.sort.cards.forEach((c) => this.paintCard(c.id));
     ALL_BUTTONS.forEach((a) => this.paintButton(a));
     const text = this.captionText;
@@ -774,6 +780,21 @@ export class LooseEndsSystem extends createSystem({
   }
 
   /** Put every card where the model says it lives, and keep what the evening sorted. */
+  /** Scale every surface colour by the brightness setting; each material keeps its own base colour. */
+  private dim(): void {
+    const b = this.prefs.bright;
+    this.root.object3D!.traverse((o) => {
+      const mats = (o as Mesh).material;
+      if (!mats) return;
+      for (const m of Array.isArray(mats) ? mats : [mats]) {
+        const c = (m as MeshBasicMaterial).color;
+        if (!c) continue;
+        const base = (m.userData.base ??= c.clone()) as typeof c;
+        c.copy(base).multiplyScalar(b);
+      }
+    });
+  }
+
   layout(): void {
     saveSort(this.sort, globalThis.localStorage);
     // A suggestion shows only while its card is loose.
@@ -837,5 +858,6 @@ export class LooseEndsSystem extends createSystem({
         this.remember(card.id, o.position);
       });
     });
+    this.dim();
   }
 }

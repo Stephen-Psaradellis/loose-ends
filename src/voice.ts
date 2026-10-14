@@ -39,6 +39,11 @@ const PREF_PHRASES: readonly [RegExp, PrefChange][] = [
   [/^(?:gaze|looking|look to choose|head control) on$|^turn on (?:gaze|looking|look to choose)$/, { key: 'gaze', value: true }],
   [/^(?:sounds?|chimes?|tones?)(?: on)?$|^turn on (?:the )?(?:sounds?|chimes?)$|^unmute$/, { key: 'sound', value: true }],
   [/^(?:sounds?|chimes?|tones?) off$|^turn off (?:the )?(?:sounds?|chimes?)$|^mute$|^no sounds?$/, { key: 'sound', value: false }],
+  [/^(?:make it |a bit |turn it )?(?:dimmer|darker|less bright)$|^(?:dim|darken)(?: it| the (?:room|scene|lights))?$|^(?:turn |bring )?(?:the )?brightness down$/, { key: 'bright', step: -1 }],
+  [/^(?:make it |a bit |turn it )?(?:brighter|lighter)$|^(?:full|more) brightness$|^(?:turn |bring )?(?:the )?brightness up$/, { key: 'bright', step: 1 }],
+  [/^(?:turn|move|rotate|swing) (?:the )?(?:desk|trays|scene|view|everything)?\s*(?:to the )?right$|^(?:turn|look) right$/, { key: 'turn', step: 1 }],
+  [/^(?:turn|move|rotate|swing) (?:the )?(?:desk|trays|scene|view|everything)?\s*(?:to the )?left$|^(?:turn|look) left$/, { key: 'turn', step: -1 }],
+  [/^(?:face (?:me|forward|ahead)|straight ahead|recenter|re-?centre|re-?center|reset (?:the )?(?:view|desk|turn))$/, { key: 'turn', value: 0 }],
 ];
 const SETTINGS_OPEN = /^(?:open |show )?(?:the )?settings$/;
 const SETTINGS_CLOSE = /^(?:close|hide|exit|leave)(?: the)? settings$|^close$/;

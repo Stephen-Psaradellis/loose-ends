@@ -30,6 +30,29 @@ describe('Prefs', () => {
     expect(p.apply({ key: 'gaze', value: false })).toBe('Look to choose off');
   });
 
+  it('dims for a dark room and turns the desk without a neck turn (VRC 5, 7)', () => {
+    const p = new Prefs();
+    expect(p.apply({ key: 'bright', step: -1 })).toBe('Brightness 75%');
+    p.apply({ key: 'bright', step: -1 });
+    p.apply({ key: 'bright', step: -1 });
+    expect(p.bright).toBe(0.5);
+    expect(p.apply({ key: 'bright', cycle: true })).toBe('Brightness 75%');
+    expect(p.apply({ key: 'turn', step: 1 })).toBe('Desk turned 30 degrees right');
+    p.apply({ key: 'turn', step: 1 });
+    expect(p.apply({ key: 'turn', step: 1 })).toBe('Desk turned 60 degrees right');
+    expect(p.apply({ key: 'turn', cycle: true })).toBe('Desk turned 60 degrees left');
+    expect(p.apply({ key: 'turn', value: 0 })).toBe('Desk: straight ahead');
+    const s = memoryStorage();
+    p.apply({ key: 'turn', step: -1 });
+    savePrefs(p, s);
+    const back = loadPrefs(s);
+    expect([back.bright, back.turn]).toEqual([0.75, -30]);
+    // A save from before these settings existed loads bright and straight.
+    const old = Prefs.from({ v: 1, text: 1, contrast: false, hand: 'both', dwell: 1.2, gaze: true, guided: true });
+    expect([old.bright, old.turn]).toEqual([1, 0]);
+    expect(Prefs.from({ v: 1, bright: 7, turn: 45 }).bright).toBe(1);
+  });
+
   it('survives a reload and ignores bad fields one by one', () => {
     const s = memoryStorage();
     const p = new Prefs();
@@ -85,6 +108,11 @@ describe('settings by voice', () => {
     ['both hands', { kind: 'pref', change: { key: 'hand', value: 'both' } }],
     ['slower gaze', { kind: 'pref', change: { key: 'dwell', step: 1 } }],
     ['turn off looking', { kind: 'pref', change: { key: 'gaze', value: false } }],
+    ['dimmer', { kind: 'pref', change: { key: 'bright', step: -1 } }],
+    ['Make it brighter.', { kind: 'pref', change: { key: 'bright', step: 1 } }],
+    ['turn the desk to the right', { kind: 'pref', change: { key: 'turn', step: 1 } }],
+    ['turn left', { kind: 'pref', change: { key: 'turn', step: -1 } }],
+    ['face me', { kind: 'pref', change: { key: 'turn', value: 0 } }],
     ['open settings', { kind: 'settings', open: true }],
     ['Close settings', { kind: 'settings', open: false }],
     ['What can I say?', { kind: 'help' }],
@@ -95,6 +123,8 @@ describe('settings by voice', () => {
 
   it('does not swallow ordinary thoughts', () => {
     expect(parseUtterance('buy a bigger suitcase', cards as never).kind).toBe('capture');
+    expect(parseUtterance('turn right at the bakery for bread', cards as never).kind).toBe('capture');
+    expect(parseUtterance('buy a brighter lamp', cards as never).kind).toBe('capture');
     expect(parseUtterance('dentist to tomorrow', cards as never)).toEqual({ kind: 'move', cardId: 1, tray: 'tomorrow' });
   });
 });
