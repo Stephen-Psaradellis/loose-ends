@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../src/sort.js';
-import { findCard, parseUtterance, splitThoughts, splitTray } from '../src/voice.js';
+import { findCard, groundedCards, parseUtterance, splitThoughts, splitTray } from '../src/voice.js';
 
 const desk: Card[] = [
   { id: 1, text: 'Buy groceries', tray: null },
@@ -60,5 +60,50 @@ describe('voice rules parser', () => {
     expect(splitTray('the groceries go to later this week')).toEqual(['the groceries', 'week']);
     expect(findCard('mum', desk)?.id).toBe(2);
     expect(findCard('the boiler', desk)).toBeNull();
+  });
+});
+
+describe('grounded LLM card split', () => {
+  const said = "um I need to call the dentist and renew the car insurance, oh and pick up dry cleaning tomorrow";
+
+  it('takes the model cards when every card was said', () => {
+    const ai = [
+      { text: 'Call the dentist', tray: null },
+      { text: 'Renew car insurance', tray: null },
+      { text: 'Pick up dry cleaning', tray: 'tomorrow' },
+    ];
+    expect(parseUtterance(said, [], ai)).toEqual({
+      kind: 'capture',
+      cards: [
+        { text: 'Call the dentist', trayHint: null },
+        { text: 'Renew car insurance', trayHint: null },
+        { text: 'Pick up dry cleaning', trayHint: 'tomorrow' },
+      ],
+    });
+  });
+
+  it('rejects the whole set when one card is invented', () => {
+    const ai = [{ text: 'Call the dentist', tray: null }, { text: 'Book flights to Rome', tray: null }];
+    expect(groundedCards(ai, said)).toBeNull();
+    const u = parseUtterance(said, [], ai);
+    expect(u.kind).toBe('capture');
+    expect(u.kind === 'capture' && u.cards.map((c) => c.text)).not.toContain('Book flights to Rome');
+  });
+
+  it('ignores junk, empty and oversize answers', () => {
+    expect(groundedCards(null, said)).toBeNull();
+    expect(groundedCards([], said)).toBeNull();
+    expect(groundedCards([{ text: 42 }], said)).toBeNull();
+    expect(groundedCards(Array(9).fill({ text: 'Call the dentist' }), said)).toBeNull();
+    expect(groundedCards([{ text: 'Call the dentist', tray: 'someday' }], said)).toEqual([{ text: 'Call the dentist', trayHint: null }]);
+  });
+
+  it('never lets the model override a command', () => {
+    expect(parseUtterance('undo', [], [{ text: 'Undo', tray: null }])).toEqual({ kind: 'undo' });
+    expect(parseUtterance('groceries to tomorrow', desk, [{ text: 'Groceries', tray: 'tomorrow' }])).toEqual({
+      kind: 'move',
+      cardId: 1,
+      tray: 'tomorrow',
+    });
   });
 });

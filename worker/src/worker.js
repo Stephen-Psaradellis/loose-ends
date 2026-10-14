@@ -1,9 +1,39 @@
 // loose-ends-voice: speech to text for Loose Ends. Quest Browser has no Web Speech API, so the
 // app records a short clip (MediaRecorder) and posts it here; Workers AI Whisper returns the text.
 // The audio is never stored or logged: it lives for the length of this request.
+// With ?split=1 an LLM also splits the transcript into short to-do cards. The app checks every
+// card against the transcript and falls back to its own rules parser, so a slow or wrong model
+// costs nothing but the upgrade.
 
 export const MODEL = '@cf/openai/whisper-large-v3-turbo';
 export const MAX_BYTES = 2_000_000; // ~60 s of opus; a thought is 2-15 s
+export const SPLIT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+export const SPLIT_MS = 4000;
+const TRAYS = ['tomorrow', 'week', 'letgo'];
+const CARD_SCHEMA = {
+  type: 'object',
+  properties: {
+    cards: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        properties: { text: { type: 'string' }, tray: { type: ['string', 'null'], enum: ['tomorrow', 'week', 'letgo', null] } },
+        required: ['text', 'tray'],
+      },
+    },
+  },
+  required: ['cards'],
+};
+const SPLIT_PROMPT =
+  'You turn an evening brain-dump into to-do cards. Return JSON {"cards":[{"text":string,"tray":string|null}]}. ' +
+  'One card per separate task, in the order spoken. text: 2-8 words, starts with a verb, built from the words the ' +
+  'speaker used. Keep every name, place and deadline they said (Priya, Friday); add nothing they did not say. ' +
+  'Sentence case: capitalise only the first word and names, no full stop. Example: "email Priya about the budget ' +
+  'before Friday" -> "Email Priya about the budget by Friday". ' +
+  'tray: "tomorrow" if they said tomorrow or in the morning, "week" if this week, later or a weekday, "letgo" if ' +
+  'let it go or forget it (that task still gets its card), else null. Leave out filler, feelings with no task, and commands to the app. ' +
+  'At most 8 cards. If there is no task, return {"cards":[]}.';
 const ORIGINS = [/^https:\/\/stephen-psaradellis\.github\.io$/, /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/];
 
 export function allowOrigin(origin) {
@@ -26,11 +56,70 @@ export function toBase64(bytes) {
   return btoa(s);
 }
 
+/** Keep only well-formed cards; anything else means the model said nothing usable. */
+export function cleanCards(raw) {
+  const list = Array.isArray(raw?.cards) ? raw.cards : Array.isArray(raw) ? raw : null;
+  if (!list) return null;
+  const out = [];
+  for (const c of list.slice(0, 8)) {
+    const text = String(c?.text ?? '').replace(/\s+/g, ' ').trim().replace(/[.]+$/, '');
+    if (!text || text.length > 60) continue;
+    out.push({ text, tray: TRAYS.includes(c?.tray) ? c.tray : null });
+  }
+  return out;
+}
+
+/** Workers AI answers either natively ({response}) or OpenAI-style ({choices:[{message}]}). */
+export function modelText(out) {
+  if (out?.response !== undefined) return out.response;
+  return out?.choices?.[0]?.message?.content ?? null;
+}
+
+export function parseJson(resp) {
+  if (resp && typeof resp === 'object') return resp;
+  const m = String(resp ?? '').match(/\{[\s\S]*\}/);
+  try {
+    return m ? JSON.parse(m[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function splitCards(env, text, ms = SPLIT_MS) {
+  if (!text) return [];
+  const run = env.AI.run(SPLIT_MODEL, {
+    messages: [
+      { role: 'system', content: SPLIT_PROMPT },
+      { role: 'user', content: text.slice(0, 1500) },
+    ],
+    max_tokens: 400,
+    temperature: 0.1,
+    response_format: { type: 'json_schema', json_schema: CARD_SCHEMA },
+  });
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), ms));
+  try {
+    const out = await Promise.race([run, timeout]);
+    if (!out) console.log('split: timeout');
+    return out ? cleanCards(parseJson(modelText(out))) : null;
+  } catch (e) {
+    console.log('split: error', String(e?.message || e).slice(0, 200));
+    return null;
+  }
+}
+
 export async function handle(request, env) {
   const origin = request.headers.get('Origin');
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
   if (request.method === 'GET' && (path === '' || path === '/health')) return json({ ok: true, model: MODEL }, 200, origin);
+  if (path === '/split' && request.method === 'POST') {
+    if (origin && !allowOrigin(origin)) return json({ error: 'origin not allowed' }, 403, origin);
+    const body = await request.json().catch(() => ({}));
+    const text = String(body?.text ?? '').trim().slice(0, 1500);
+    const t0 = Date.now();
+    const cards = await splitCards(env, text, Math.min(Number(body?.ms) || SPLIT_MS, 15000));
+    return json({ cards, ms: Date.now() - t0 }, 200, origin);
+  }
   if (path !== '/stt') return json({ error: 'not found' }, 404, origin);
   if (request.method !== 'POST') return json({ error: 'POST only' }, 405, origin);
   if (origin && !allowOrigin(origin)) return json({ error: 'origin not allowed' }, 403, origin);
@@ -41,7 +130,9 @@ export async function handle(request, env) {
   try {
     const out = await env.AI.run(MODEL, { audio: toBase64(bytes), language: 'en', vad_filter: true });
     const text = String(out?.text ?? '').trim();
-    return json({ text }, 200, origin);
+    if (new URL(request.url).searchParams.get('split') !== '1') return json({ text }, 200, origin);
+    const cards = await splitCards(env, text);
+    return json(cards ? { text, cards } : { text }, 200, origin);
   } catch (e) {
     return json({ error: 'speech service busy', detail: String(e?.message || e).slice(0, 200) }, 502, origin);
   }

@@ -1,8 +1,11 @@
 // Loose Ends - the microphone. Quest Browser has no Web Speech API, so a thought is
 // recorded as a short clip and sent to our Worker (Workers AI Whisper), which returns
-// text and keeps nothing. Commands are then parsed locally (voice.ts).
+// text and keeps nothing. Commands are then parsed locally (voice.ts); a capture may use
+// the Worker's LLM card split when every card is grounded in the transcript.
 
-export const VOICE_URL = 'https://loose-ends-voice.s-n-psaradellis.workers.dev/stt';
+export const VOICE_URL = 'https://loose-ends-voice.s-n-psaradellis.workers.dev/stt?split=1';
+
+export type Heard = { text: string; cards?: unknown };
 /** A thought is a few seconds; stop on our own so a forgotten mic does not run on. */
 export const MAX_CLIP_MS = 20_000;
 
@@ -14,11 +17,11 @@ function pickMime(): string | undefined {
   return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((m) => MR.isTypeSupported(m));
 }
 
-export async function transcribe(clip: Blob, url = VOICE_URL, fetcher: typeof fetch = fetch): Promise<string> {
+export async function transcribe(clip: Blob, url = VOICE_URL, fetcher: typeof fetch = fetch): Promise<Heard> {
   const res = await fetcher(url, { method: 'POST', body: clip, headers: { 'Content-Type': clip.type || 'audio/webm' } });
-  const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+  const body = (await res.json().catch(() => ({}))) as { text?: string; cards?: unknown; error?: string };
   if (!res.ok) throw new Error(body.error || `speech service ${res.status}`);
-  return (body.text ?? '').trim();
+  return { text: (body.text ?? '').trim(), cards: body.cards };
 }
 
 /** Tap to start, tap again to stop; the transcript (or an error) arrives through the callbacks. */
@@ -31,7 +34,7 @@ export class Mic {
   streamSource: (() => Promise<MediaStream>) | null = null;
 
   constructor(
-    private onText: (text: string) => void,
+    private onText: (text: string, cards?: unknown) => void,
     private onState: (state: MicState, detail?: string) => void,
   ) {}
 
@@ -83,9 +86,9 @@ export class Mic {
 
   private async finish(clip: Blob): Promise<void> {
     try {
-      const text = await transcribe(clip);
+      const { text, cards } = await transcribe(clip);
       this.set('idle');
-      if (text) this.onText(text);
+      if (text) this.onText(text, cards);
       else this.set('error', "Didn't catch that - try again.");
     } catch {
       this.set('error', 'Voice is offline right now - pinch or look instead.');

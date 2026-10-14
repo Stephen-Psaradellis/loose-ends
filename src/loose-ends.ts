@@ -357,7 +357,7 @@ export class LooseEndsSystem extends createSystem({
     this.applyPrefs();
     this.say(this.guide.text ?? PROMPT);
     this.mic = new Mic(
-      (text) => this.hear(text),
+      (text, cards) => this.hear(text, cards),
       (state, detail) => this.micState(state, detail),
     );
     this.queries.pressedMic.subscribe('qualify', () => {
@@ -427,8 +427,8 @@ export class LooseEndsSystem extends createSystem({
   }
 
   /** One transcript in: a command on the sort, or new cards. Same calls as hands and gaze. */
-  hear(transcript: string): void {
-    const u = parseUtterance(transcript, this.sort.cards);
+  hear(transcript: string, aiCards?: unknown): void {
+    const u = parseUtterance(transcript, this.sort.cards, aiCards);
     this.note(`hear ${u.kind}`);
     const name = (id: number) => this.sort.get(id)?.text ?? '';
     switch (u.kind) {

@@ -22,7 +22,11 @@ cards). Commands work the same way: "groceries to tomorrow", a card's name then
 hears or says is shown as a caption. The Quest Browser has no built-in speech
 recognition, so the clip goes to a small Cloudflare Worker (`worker/`) that runs
 Whisper on Workers AI and returns text; the audio is not stored. Commands are
-parsed on the device (`src/voice.ts`), so they never wait on a model.
+parsed on the device (`src/voice.ts`), so they never wait on a model. For a
+ramble, the same Worker asks Llama 3.3 (Workers AI, JSON schema output) to split
+it into short cards ("um, the leaky kitchen tap, let it go" -> "Fix the leaky
+kitchen tap"). The app keeps the model's cards only if every one is built from
+words you said; one invented card and it uses its own rules split instead.
 
 Undo and "Done for tonight" are also buttons, so every spoken command has a
 pinch and a look-at-it twin. Done reads back tomorrow's cards and grows the

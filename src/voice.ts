@@ -133,8 +133,33 @@ export function splitThoughts(text: string): string[] {
   return parts.map((p) => p.trim()).filter(Boolean);
 }
 
+export type AiCard = { text: string; tray: TrayId | null };
+const TRAY_IDS: readonly TrayId[] = ['tomorrow', 'week', 'letgo'];
+
+/**
+ * The model's cards, only if every one is grounded in what was said: at least half of each
+ * card's content words were heard (prefix-tolerant, so "renew" matches "renewing"). One
+ * invented card rejects the whole set, and the rules parser's cards are used instead.
+ */
+export function groundedCards(ai: unknown, transcript: string): { text: string; trayHint: TrayId | null }[] | null {
+  if (!Array.isArray(ai) || !ai.length || ai.length > 8) return null;
+  const heard = words(transcript);
+  const hit = (w: string) => heard.some((s) => s === w || (Math.min(s.length, w.length) >= 4 && (w.startsWith(s.slice(0, 4)) && s.startsWith(w.slice(0, 4)))));
+  const out: { text: string; trayHint: TrayId | null }[] = [];
+  for (const c of ai) {
+    const raw = typeof c?.text === 'string' ? c.text.trim() : '';
+    const text = raw.replace(/[.]+$/, '');
+    if (!text || text.length > 60) return null;
+    const own = words(text);
+    if (!own.length || own.filter(hit).length / own.length < 0.5) return null;
+    const tray = TRAY_IDS.includes(c?.tray) ? (c.tray as TrayId) : null;
+    out.push({ text: text.charAt(0).toUpperCase() + text.slice(1), trayHint: tray });
+  }
+  return out;
+}
+
 /** Parse one transcript against the cards on the desk. */
-export function parseUtterance(transcript: string, cards: readonly Card[]): Utterance {
+export function parseUtterance(transcript: string, cards: readonly Card[], ai?: unknown): Utterance {
   const t = norm(transcript).replace(/^(?:hey|ok|okay|um+|uh+)\s+/, '');
   if (!t) return { kind: 'empty' };
   if (UNDO.test(t)) return { kind: 'undo' };
@@ -167,6 +192,10 @@ export function parseUtterance(transcript: string, cards: readonly Card[]): Utte
       if (card) return { kind: 'select', cardId: card.id };
     }
   }
+
+  // A capture: the model's split when it is grounded, else the rules split below.
+  const smart = ai === undefined ? null : groundedCards(ai, transcript);
+  if (smart) return { kind: 'capture', cards: smart };
 
   const out: { text: string; trayHint: TrayId | null }[] = [];
   for (const part of single) {
