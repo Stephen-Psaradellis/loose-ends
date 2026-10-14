@@ -32,6 +32,8 @@ def load_table(src: str | None = None) -> tuple[dict[str, list[dict]], float]:
     notes = {k: float(v) for k, v in re.findall(r"const (\w+) = ([\d.]+);", src)}
     volume = float(re.search(r"export const VOLUME = ([\d.]+);", src).group(1))
     body = re.search(r"export const CUES[^=]*= \{(.*?)\n\};", src, re.S).group(1)
+    # A comment line between entries ends the previous entry's match late and merges two cues.
+    body = re.sub(r"^\s*//.*\n", "", body, flags=re.M)
     table: dict[str, list[dict]] = {}
     for name, tones in re.findall(r"(\w+): \[(.*?)\],?\n(?=  \w+:|$)", body + "\n", re.S):
         table[name] = []

@@ -5,7 +5,8 @@ Narration clips start at their scene; each user line starts when the app began l
 (that is when record.mjs fed it to the microphone); the readback is the app's own caption
 text spoken in a third voice, because headless Chromium's speechSynthesis makes no sound.
 The app's sound cues (record.mjs logs each one it played) are re-synthesised by cues.py.
-The first frames (page load, entering XR) are trimmed: output starts 0.4s before scene 1.
+The first frames (page load, entering XR) are trimmed: output starts 0.4s before scene 1;
+the next-evening reload is cut out the same way and captioned.
 Needs edge-tts + imageio-ffmpeg (Python 3.10 on this machine; edge-tts >= 7.3.1).
 """
 from __future__ import annotations
@@ -29,31 +30,54 @@ ids = [s["id"] for s in cfg["scenes"]]
 APP_VOICE = "en-US-EmmaNeural"
 FONT = "C\\:/Windows/Fonts/segoeui.ttf"
 NOTE = "Recorded in the Meta IWER emulator, hands mode. Voices are synthetic."
+NEXT = "The next evening (the demo moves the saved day back one day, then reloads)"
 
 readback = out / "readback.mp3"
 if tl.get("readback"):
     asyncio.run(edge_tts.Communicate(tl["readback"], APP_VOICE).save(str(readback)))
 
 lead = max(0.0, tl[ids[0]] - 0.4)
-end = min(tl["_end"] - lead, 179.0)
+# The next-evening reload (cut_from..cut_to) is cut out; out() maps recording time to video time.
+cut = (tl["cut_from"], tl["cut_to"]) if "cut_from" in tl else None
+gap = cut[1] - cut[0] if cut else 0.0
+
+
+def out_t(at: float) -> float:
+    return at - lead - (gap if cut and at >= cut[1] else 0.0)
+
+
+end = min(out_t(tl["_end"]), 179.0)
 clips = [(out / f"{i}.mp3", tl[i] + 0.25) for i in ids]
 clips += [(out / f"user_{s['id']}.mp3", tl[f"user_{s['id']}"]) for s in cfg["scenes"] if s.get("user")]
 if tl.get("readback"):
     clips.append((readback, tl["readback_at"] - 0.4))
-if tl.get("cues"):  # one track, already offset by the trim, laid at the trim point
-    track = cues.write_track([[c, at - lead] for c, at in tl["cues"] if at >= lead], end, out / "cues.wav")
-    clips.append((track, lead))
+tracks = []
+if tl.get("cues"):  # one track, already in video time, laid at 0
+    keep = [[c, out_t(at)] for c, at in tl["cues"] if at >= lead and not (cut and cut[0] <= at < cut[1])]
+    tracks.append(cues.write_track(keep, end, out / "cues.wav"))
 
-cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-ss", f"{lead:.3f}", "-i", str(out / tl["video"])]
+cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", str(out / tl["video"])]
 parts, labels = [], []
-for n, (path, at) in enumerate(clips, start=1):
+inputs = [(path, out_t(at)) for path, at in clips] + [(t, 0.0) for t in tracks]
+for n, (path, at) in enumerate(inputs, start=1):
     cmd += ["-i", str(path)]
-    ms = max(0, int(round((at - lead) * 1000)))
+    ms = max(0, int(round(at * 1000)))
     parts.append(f"[{n}:a]adelay={ms}|{ms}[a{n}]")
     labels.append(f"[a{n}]")
-parts.append(f"{''.join(labels)}amix=inputs={len(clips)}:normalize=0,apad[aout]")
-parts.append(f"[0:v]fps=30,drawtext=fontfile='{FONT}':text='{NOTE}':fontcolor=white@0.85:fontsize=20:"
-             f"box=1:boxcolor=black@0.45:boxborderw=8:x=20:y=h-44:enable='lt(t,7)'[vout]")
+parts.append(f"{''.join(labels)}amix=inputs={len(inputs)}:normalize=0,apad[aout]")
+if cut:
+    parts.append(f"[0:v]trim=start={lead:.3f}:end={cut[0]:.3f},setpts=PTS-STARTPTS[v1]")
+    parts.append(f"[0:v]trim=start={cut[1]:.3f},setpts=PTS-STARTPTS[v2]")
+    parts.append("[v1][v2]concat=n=2:v=1:a=0[vcat]")
+else:
+    parts.append(f"[0:v]trim=start={lead:.3f},setpts=PTS-STARTPTS[vcat]")
+draw = (f"drawtext=fontfile='{FONT}':text='{NOTE}':fontcolor=white@0.85:fontsize=20:"
+        f"box=1:boxcolor=black@0.45:boxborderw=8:x=20:y=h-44:enable='lt(t,7)'")
+if cut:
+    c0 = out_t(cut[1])
+    draw += (f",drawtext=fontfile='{FONT}':text='{NEXT}':fontcolor=white@0.9:fontsize=26:"
+             f"box=1:boxcolor=black@0.5:boxborderw=10:x=(w-tw)/2:y=40:enable='between(t,{c0:.2f},{c0 + 5:.2f})'")
+parts.append(f"[vcat]fps=30,{draw}[vout]")
 cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]", "-map", "[aout]",
         "-t", f"{end:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",

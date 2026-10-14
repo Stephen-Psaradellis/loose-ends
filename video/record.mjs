@@ -45,7 +45,7 @@ await page.waitForFunction(() => globalThis.looseEnds.renderer.xr.isPresenting, 
 // Rig: hide the emulator's developer panels, hands mode, seated head pose, and helpers.
 const clips = {};
 for (const f of readdirSync(OUT).filter(f => /^user_.*\.wav$/.test(f))) clips[f.slice(5, -4)] = readFileSync(join(OUT, f)).toString("base64");
-await page.evaluate(async (clips) => {
+const rigSetup = async (clips) => {
   const d = globalThis.IWER_DEVICE, w = globalThis.looseEnds;
   const le = [...w.systems.values ? w.systems.values() : w.systems].find(x => x.sort && x.trace);
   const app = d.appCanvas;
@@ -139,7 +139,8 @@ await page.evaluate(async (clips) => {
   };
   await globalThis.__rig.hand("left", -0.2, 1.05, -0.22);
   await globalThis.__rig.hand("right", 0.2, 1.05, -0.22);
-}, clips);
+};
+await page.evaluate(rigSetup, clips);
 await wait(1.5);
 
 async function scene(id, body) {
@@ -212,10 +213,35 @@ await speak("done", async () => { await wait(0.5); timeline.readback = await pag
 await wait(4);
 await page.evaluate(() => __rig.look("tray:tomorrow", 900));
 await wait(1);
+// The next evening. Rollover runs only when the app loads, so move last night's Done back one
+// day in storage and reload: the same path a real second evening takes. mux.py cuts the reload
+// (cut_from..cut_to) and captions the jump.
+const cuesA = await page.evaluate(() => globalThis.__cues);
+timeline.cut_from = now();
+await page.evaluate(() => {
+  const p = n => String(n).padStart(2, "0"), day = d => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const today = day(new Date()), yesterday = day(new Date(Date.now() - 86400000));
+  for (const k of ["loose-ends:v1", "loose-ends:garden:v1"]) {
+    const v = localStorage.getItem(k);
+    if (v) localStorage.setItem(k, v.split(`"${today}"`).join(`"${yesterday}"`));
+  }
+});
+await page.reload();
+await page.waitForFunction(() => globalThis.looseEnds, null, { timeout: 30000 });
+await wait(2.5);
+await page.mouse.click(640, 28);
+await page.waitForFunction(() => globalThis.looseEnds.renderer.xr.isPresenting, null, { timeout: 15000 });
+await page.evaluate(rigSetup, clips);
+await wait(1.0);
+timeline.cut_to = now();
+console.error("reopened", JSON.stringify(await page.evaluate(() => [__rig.caption(), __rig.le.sort.toJSON().cards.map(c => [c.text, c.tray, !!c.review])])).slice(0, 400));
+await scene("back", async () => { await wait(3.5); });
+await speak("back", async () => { await wait(1.5); });
+console.error("checked", JSON.stringify(await page.evaluate(() => [__rig.caption(), __rig.trace()])).slice(0, 300));
 await scene("outro", async () => { await page.evaluate(() => __rig.lookAngles(0.35, -0.4, 2500)); });
 await wait(1);
 timeline._end = now();
-timeline.cues = (await page.evaluate(() => globalThis.__cues)).map(([c, t]) => [c, +((t - t0) / 1000).toFixed(3)]);
+timeline.cues = [...cuesA, ...(await page.evaluate(() => globalThis.__cues))].map(([c, t]) => [c, +((t - t0) / 1000).toFixed(3)]);
 
 const video = page.video();
 await ctx.close();

@@ -51,6 +51,11 @@
       "user": "I'm done."
     },
     {
+      "id": "back",
+      "say": "The next evening, it remembers. What I let go of is gone, and yesterday's plan comes back to check off. I just say what happened.",
+      "user": "Email Priya is done."
+    },
+    {
       "id": "outro",
       "say": "Loose Ends. Built with Meta's Immersive Web SDK, it runs in the Quest browser with nothing to install. Five quiet minutes, then sleep."
     }

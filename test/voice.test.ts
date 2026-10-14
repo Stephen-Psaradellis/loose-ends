@@ -90,6 +90,16 @@ describe('grounded LLM card split', () => {
     expect(u.kind === 'capture' && u.cards.map((c) => c.text)).not.toContain('Book flights to Rome');
   });
 
+  it('drops a filler-only card and gives its tray to the thought before it', () => {
+    const heard = 'And the leaky kitchen tap, honestly, let it go.';
+    const ai = [
+      { text: 'The leaky kitchen tap', tray: null },
+      { text: 'Honestly', tray: 'letgo' },
+    ];
+    expect(groundedCards(ai, heard)).toEqual([{ text: 'The leaky kitchen tap', trayHint: 'letgo' }]);
+    expect(groundedCards([{ text: 'Honestly', tray: 'letgo' }], heard)).toBeNull();
+  });
+
   it('ignores junk, empty and oversize answers', () => {
     expect(groundedCards(null, said)).toBeNull();
     expect(groundedCards([], said)).toBeNull();

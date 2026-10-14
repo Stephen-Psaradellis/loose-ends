@@ -165,10 +165,21 @@ export function groundedCards(ai: unknown, transcript: string): { text: string; 
     const own = words(text);
     if (!own.length || own.filter(hit).length / own.length < 0.5) return null;
     const tray = TRAY_IDS.includes(c?.tray) ? (c.tray as TrayId) : null;
+    // "the leaky tap, honestly, let it go": the model can make a card of the filler word alone.
+    // Drop it; its tray belongs to the thought before it.
+    if (norm(text).split(' ').every((w) => HEDGE.has(w))) {
+      const prev = out[out.length - 1];
+      if (prev && !prev.trayHint) prev.trayHint = tray;
+      continue;
+    }
     out.push({ text: text.charAt(0).toUpperCase() + text.slice(1), trayHint: tray });
   }
-  return out;
+  return out.length ? out : null;
 }
+
+const HEDGE = new Set(
+  'honestly actually basically literally anyway anyways seriously really just like um uh er so okay ok well oh yeah whatever though'.split(' '),
+);
 
 /** Parse one transcript against the cards on the desk. */
 export function parseUtterance(transcript: string, cards: readonly Card[], ai?: unknown): Utterance {
