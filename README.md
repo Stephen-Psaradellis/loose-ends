@@ -57,3 +57,11 @@ npm run build         # static build in dist/
 ```
 
 Built with AI assistance (Anthropic's Claude) for code and copy. MIT licence.
+
+## Demo video
+
+`video/` records the demo in Meta's IWER emulator (hands mode) with Playwright: `narrate.py`
+writes the narration and the user's spoken lines (synthetic voices), `record.mjs` drives the
+real input paths - head-gaze dwell, a hand ray with pinch, and the microphone (each user line
+is played into the mic and goes through Whisper and Llama on the Worker) - and `mux.py` lays
+the audio over the recording.

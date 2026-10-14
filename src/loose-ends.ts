@@ -8,7 +8,6 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   MovementMode,
-  OneHandGrabbable,
   CircleGeometry,
   CylinderGeometry,
   Object3D,
@@ -564,7 +563,9 @@ export class LooseEndsSystem extends createSystem({
     const e = this.world.createTransformEntity(mesh);
     e.addComponent(CardTag, { cardId: card.id });
     e.addComponent(RayInteractable);
-    e.addComponent(OneHandGrabbable, { rotate: false });
+    // Ray grab only. With OneHandGrabbable as well, GrabSystem builds the proximity
+    // handle first (pointerEventsType deny 'ray') and then skips the distance one, so a
+    // pointed pinch never reached a card - only trays and buttons answered a hand ray.
     e.addComponent(DistanceGrabbable, {
       movementMode: MovementMode.MoveFromTarget,
       rotate: false,
