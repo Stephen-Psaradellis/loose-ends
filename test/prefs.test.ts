@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Guide, GUIDE_STEPS } from '../src/guide.js';
-import { loadPrefs, Prefs, rowMax, savePrefs, trayLayout } from '../src/prefs.js';
+import { HeightFit, loadPrefs, Prefs, rowMax, savePrefs, sceneLift, trayLayout } from '../src/prefs.js';
 import { parseUtterance } from '../src/voice.js';
 
 function memoryStorage() {
@@ -96,5 +96,39 @@ describe('settings by voice', () => {
   it('does not swallow ordinary thoughts', () => {
     expect(parseUtterance('buy a bigger suitcase', cards as never).kind).toBe('capture');
     expect(parseUtterance('dentist to tomorrow', cards as never)).toEqual({ kind: 'move', cardId: 1, tray: 'tomorrow' });
+  });
+});
+
+describe('sceneLift', () => {
+  it('leaves a seated head alone and lifts a standing one to match', () => {
+    expect(sceneLift(1.2)).toBe(0);
+    expect(sceneLift(1.05)).toBe(0);
+    expect(sceneLift(1.6)).toBeCloseTo(0.4);
+    expect(sceneLift(2.1)).toBe(0.5);
+  });
+  it('ignores a head reading tracking has not settled', () => {
+    expect(sceneLift(0)).toBe(0);
+    expect(sceneLift(Number.NaN)).toBe(0);
+  });
+});
+
+describe('HeightFit', () => {
+  const run = (f: HeightFit, secs: number, head: number, busy = false) => {
+    let got: number | null = null;
+    for (let t = 0; t < secs; t += 0.1) got = f.update(0.1, head, busy) ?? got;
+    return got;
+  };
+  it('waits for the headset pose, then fits once', () => {
+    const f = new HeightFit();
+    expect(f.update(0.1, 1.3)).toBeNull(); // still the flat-screen camera
+    expect(run(f, 0.6, 1.6)).toBeCloseTo(0.4);
+    expect(run(f, 3, 1.62)).toBeNull(); // small sway never moves the scene
+  });
+  it('re-fits when the viewer sits down, but not mid-grab', () => {
+    const f = new HeightFit();
+    run(f, 1, 1.6);
+    expect(run(f, 3, 1.2, true)).toBeNull();
+    expect(run(f, 1, 1.2)).toBeNull(); // not held long enough yet
+    expect(run(f, 1, 1.2)).toBe(0);
   });
 });

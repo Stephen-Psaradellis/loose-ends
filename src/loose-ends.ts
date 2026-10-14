@@ -27,7 +27,7 @@ import { Dwell } from './dwell.js';
 import { loadGarden, localDay, MAX_LEAVES, saveGarden, type Garden } from './garden.js';
 import { Guide, GUIDE_STEPS, type GuideEvent } from './guide.js';
 import { Mic, type MicState } from './mic.js';
-import { loadPrefs, rowMax, savePrefs, trayLayout, type PrefChange, type PrefKey, type Prefs } from './prefs.js';
+import { HeightFit, loadPrefs, rowMax, savePrefs, trayLayout, type PrefChange, type PrefKey, type Prefs } from './prefs.js';
 import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type TrayId } from './sort.js';
 import { ButtonTag, CardTag, MicTag, TrayTag } from './sort-components.js';
 import { Sounds } from './sound.js';
@@ -174,6 +174,9 @@ export class LooseEndsSystem extends createSystem({
   private selected: number | null = null;
   private tmp = new Vector3();
   private home = new Map<number, Vector3>();
+  /** Parent of every placed object; lifted once per XR session to the viewer's head height. */
+  private root!: Entity;
+  private heightFit = new HeightFit();
   /** Last input events, newest last; read in the emulator to debug input paths. */
   readonly trace: string[] = [];
   mic!: Mic;
@@ -290,6 +293,7 @@ export class LooseEndsSystem extends createSystem({
   }
 
   init(): void {
+    this.root = this.world.createTransformEntity();
     this.prefs = loadPrefs(globalThis.localStorage);
     this.guide = new Guide(this.prefs.guided ? GUIDE_STEPS.length : 0);
     TRAYS.forEach((tray, i) => {
@@ -311,7 +315,7 @@ export class LooseEndsSystem extends createSystem({
       // Rays hit the tray box, never its floating label.
       label.raycast = () => {};
       box.add(label);
-      const e = this.world.createTransformEntity(box);
+      const e = this.world.createTransformEntity(box, { parent: this.root });
       e.addComponent(TrayTag, { trayIndex: i });
       e.addComponent(RayInteractable);
       this.trayCentres.push({ id: tray.id, x, z: TRAY_Z });
@@ -348,7 +352,7 @@ export class LooseEndsSystem extends createSystem({
       new MeshStandardMaterial({ color: '#e8b04a', emissive: '#3a2a10', roughness: 0.4 }),
     );
     this.orb.position.set(...MIC_POS);
-    const orbEntity = this.world.createTransformEntity(this.orb);
+    const orbEntity = this.world.createTransformEntity(this.orb, { parent: this.root });
     orbEntity.addComponent(MicTag);
     orbEntity.addComponent(RayInteractable);
     this.gazeKeys.set(this.orb, 'mic');
@@ -366,7 +370,7 @@ export class LooseEndsSystem extends createSystem({
         mesh.rotation.y = 0.45;
         this.fixedTargets.push(mesh);
       }
-      const e = this.world.createTransformEntity(mesh);
+      const e = this.world.createTransformEntity(mesh, { parent: this.root });
       e.addComponent(ButtonTag, { action: i });
       e.addComponent(RayInteractable);
       // Turning gaze off by gaze would strand a gaze-only user, so that one button takes no dwell.
@@ -385,7 +389,7 @@ export class LooseEndsSystem extends createSystem({
     this.caption = new Mesh(new PlaneGeometry(CAPTION_W, CAPTION_H), new MeshBasicMaterial({ transparent: true }));
     this.caption.position.set(0, CAPTION_Y, LOOSE_Z - 0.05);
     this.caption.raycast = () => {};
-    this.world.createTransformEntity(this.caption);
+    this.world.createTransformEntity(this.caption, { parent: this.root });
     this.applyPrefs();
     this.say(this.guide.text ?? PROMPT);
     this.mic = new Mic(
@@ -400,7 +404,8 @@ export class LooseEndsSystem extends createSystem({
     // Pinch-drag path: a card released over a tray goes in it; anywhere else it floats back.
     this.queries.heldCards.subscribe('disqualify', (entity) => {
       const id = entity.getValue(CardTag, 'cardId') as number;
-      entity.object3D!.getWorldPosition(this.tmp);
+      // Root-local, like the tray centres and homes, so a lifted scene drops the same.
+      this.root.object3D!.worldToLocal(entity.object3D!.getWorldPosition(this.tmp));
       this.note(`release ${id} ${this.tmp.x.toFixed(2)},${this.tmp.y.toFixed(2)},${this.tmp.z.toFixed(2)}`);
       // A pinch or click that barely moved the card is a select, not a drop.
       const home = this.home.get(id);
@@ -587,7 +592,7 @@ export class LooseEndsSystem extends createSystem({
     this.flower.position.y = 0.24;
     pot.add(this.flower);
     pot.traverse((o) => (o.raycast = () => {}));
-    this.world.createTransformEntity(pot);
+    this.world.createTransformEntity(pot, { parent: this.root });
     this.showPlant();
   }
 
@@ -621,7 +626,7 @@ export class LooseEndsSystem extends createSystem({
 
   private spawn(card: Card): void {
     const mesh = new Mesh(new PlaneGeometry(CARD_W, CARD_H), new MeshBasicMaterial());
-    const e = this.world.createTransformEntity(mesh);
+    const e = this.world.createTransformEntity(mesh, { parent: this.root });
     e.addComponent(CardTag, { cardId: card.id });
     e.addComponent(RayInteractable);
     // Ray grab only. With OneHandGrabbable as well, GrabSystem builds the proximity
@@ -648,9 +653,24 @@ export class LooseEndsSystem extends createSystem({
     }
   }
 
+  /** Seated layout, any viewer: lift the scene by head height - 1.2 m (HeightFit says when). */
+  private fitHeight(inXR: boolean, delta: number): void {
+    if (!inXR) {
+      if (this.heightFit.lift) this.root.object3D!.position.y = 0;
+      this.heightFit.reset();
+      return;
+    }
+    this.camera.getWorldPosition(this.head);
+    const lift = this.heightFit.update(delta, this.head.y, this.queries.heldCards.entities.size > 0);
+    if (lift == null) return;
+    this.root.object3D!.position.y = lift;
+    this.note(`lift ${lift.toFixed(2)} head ${this.head.y.toFixed(2)}`);
+  }
+
   update(delta: number): void {
     this.now += delta;
     const inXR = this.world.visibilityState.peek() !== VisibilityState.NonImmersive;
+    this.fitHeight(inXR, delta);
     // On a flat screen the camera never moves, so dwell would just pick the middle card.
     if (!this.gazeDwell || !inXR || this.queries.heldCards.entities.size > 0) {
       this.reticle.visible = false;

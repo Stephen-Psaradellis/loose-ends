@@ -126,6 +126,52 @@ export function rowMax(text: number): number {
   return text >= 2 ? 2 : text >= 1.5 ? 3 : 4;
 }
 
+/** The layout is built for a seated head at this height (m). */
+export const SEATED_HEAD_Y = 1.2;
+
+/**
+ * How far (m) to lift the whole scene so a standing viewer sees it as a seated one
+ * does: head height above the seated design, clamped to 0..0.5. A reading under
+ * 0.3 m is tracking that has not settled yet, so it lifts nothing.
+ */
+export function sceneLift(headY: number): number {
+  if (!Number.isFinite(headY) || headY < 0.3) return 0;
+  return Math.min(0.5, Math.max(0, headY - SEATED_HEAD_Y));
+}
+
+/**
+ * Settles the scene lift. The first value comes `settle` s into XR (the first frames still
+ * carry the flat-screen camera); after that it re-fits only when the head stays `step` m
+ * off the current fit for `hold` s - the viewer stood up or sat down - and never mid-grab.
+ */
+export class HeightFit {
+  lift: number | null = null;
+  private t = 0;
+  private off = 0;
+  constructor(readonly settle = 0.5, readonly step = 0.15, readonly hold = 1.5) {}
+  reset(): void {
+    this.lift = null;
+    this.t = this.off = 0;
+  }
+  /** The new lift when it changes, else null. */
+  update(dt: number, headY: number, busy = false): number | null {
+    this.t += dt;
+    const want = sceneLift(headY);
+    if (this.lift == null) {
+      if (this.t < this.settle || !(headY >= 0.3)) return null;
+      return (this.lift = want);
+    }
+    if (busy || Math.abs(want - this.lift) < this.step) {
+      this.off = 0;
+      return null;
+    }
+    this.off += dt;
+    if (this.off < this.hold) return null;
+    this.off = 0;
+    return (this.lift = want);
+  }
+}
+
 /** Sideways shift (m) and spacing of the trays for one-hand use. */
 export function trayLayout(hand: Hand): { shift: number; gap: number } {
   if (hand === 'both') return { shift: 0, gap: 0.36 };

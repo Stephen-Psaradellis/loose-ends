@@ -2,11 +2,12 @@
 // guide's captions. Prints the time to each milestone, the caption shown at each
 // step, and which of caption / cards / trays / orb / buttons sit inside the
 // starting view. Screenshots go to SHOTS (default: out/first5-*.png).
-//   LE_URL=... SHOTS=dir node probe-first5.mjs
+//   LE_URL=... SHOTS=dir HEAD_Y=1.6 node probe-first5.mjs  (HEAD_Y: emulated head height, m; unset = emulator default)
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT || "C:/Users/snpsa/node_modules/playwright");
 const URL_ = process.env.LE_URL || "https://stephen-psaradellis.github.io/loose-ends/";
+const HEAD_Y = process.env.HEAD_Y ? Number(process.env.HEAD_Y) : null;
 const SHOTS = process.env.SHOTS || new URL("./out/", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
 const browser = await chromium.launch({ args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
@@ -22,8 +23,11 @@ await page.screenshot({ path: SHOTS + "first5-0-flat.png" });
 const flatText = await page.evaluate(() => document.body.innerText.slice(0, 300));
 await page.mouse.click(640, 28);
 await page.waitForFunction(() => globalThis.IWER_DEVICE?.activeSession, null, { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(1500);
-mark("xr", { session: await page.evaluate(() => !!globalThis.IWER_DEVICE?.activeSession) });
+// The emulator resets the pose at session start, so the head height is set after it.
+if (HEAD_Y != null) await page.evaluate(y => globalThis.IWER_DEVICE.remote.dispatch("set_transform", { device: "headset", position: { x: 0, y, z: 0 } }), HEAD_Y);
+await page.waitForTimeout(HEAD_Y != null ? 3000 : 1500);
+mark("xr", await page.evaluate(() => { const w = globalThis.looseEnds, le = [...w.systems].find(x => x.sort && x.trace);
+  return { session: !!globalThis.IWER_DEVICE?.activeSession, head: +globalThis.IWER_DEVICE.position.y.toFixed(2), lift: le.trace.filter(t => t.startsWith("lift")).pop() ?? null }; }));
 await page.screenshot({ path: SHOTS + "first5-1-xr.png" });
 
 // What the visitor can see before moving their head, and what the guide says.
@@ -43,7 +47,7 @@ const pinch = async key => page.evaluate(async ([KEY]) => {
   const w = globalThis.looseEnds, d = globalThis.IWER_DEVICE, le = [...w.systems].find(x => x.sort && x.trace);
   d.primaryInputMode = "hand"; await new Promise(r => setTimeout(r, 300));
   const R = (m, p) => d.remote.dispatch(m, p);
-  await R("set_transform", { device: "hand-right", position: { x: 0.16, y: 1.12, z: -0.2 } });
+  await R("set_transform", { device: "hand-right", position: { x: 0.16, y: d.position.y - 0.08 - 0.4, z: -0.2 } });
   const o = [...le.gazeKeys].find(([, k]) => k === KEY)[0], c = o.getWorldPosition(o.position.clone());
   await R("look_at", { device: "hand-right", target: { x: c.x, y: c.y, z: c.z } });
   await new Promise(r => setTimeout(r, 400));
