@@ -3,9 +3,9 @@ import type { Card } from '../src/sort.js';
 import { findCard, groundedCards, parseUtterance, splitThoughts, splitTray } from '../src/voice.js';
 
 const desk: Card[] = [
-  { id: 1, text: 'Buy groceries', tray: null, hint: null },
-  { id: 2, text: 'Call mum about Sunday', tray: null, hint: null },
-  { id: 3, text: 'Renew car insurance', tray: 'week', hint: null },
+  { id: 1, text: 'Buy groceries', tray: null, hint: null, review: false },
+  { id: 2, text: 'Call mum about Sunday', tray: null, hint: null, review: false },
+  { id: 3, text: 'Renew car insurance', tray: 'week', hint: null, review: false },
 ];
 
 describe('voice rules parser', () => {
@@ -118,5 +118,36 @@ describe('accepting suggestions by voice', () => {
   it('leaves real thoughts that mention sorting alone', () => {
     expect(parseUtterance('sort the recycling', desk).kind).toBe('capture');
     expect(parseUtterance('sort out the tax letters this week', desk).kind).toBe('capture');
+  });
+});
+
+describe("yesterday's plan (check-off)", () => {
+  const plan: Card[] = [
+    { id: 1, text: 'Buy groceries', tray: null, hint: 'tomorrow', review: true },
+    { id: 2, text: 'Call mum about Sunday', tray: null, hint: 'tomorrow', review: true },
+    { id: 3, text: 'Renew car insurance', tray: 'week', hint: null, review: false },
+  ];
+
+  it('checks off a named plan card', () => {
+    expect(parseUtterance('I did the groceries', plan)).toEqual({ kind: 'checkoff', cardId: 1 });
+    expect(parseUtterance('Called mum about Sunday... done', plan)).toEqual({ kind: 'checkoff', cardId: 2 });
+    expect(parseUtterance('call mum happened', plan)).toEqual({ kind: 'checkoff', cardId: 2 });
+    expect(parseUtterance('finished buy groceries', plan)).toEqual({ kind: 'checkoff', cardId: 1 });
+  });
+
+  it('a bare "it happened" answers for the selected card', () => {
+    for (const t of ['It happened', 'yes it happened', 'did it', 'check it off', 'that got done']) {
+      expect(parseUtterance(t, plan)).toEqual({ kind: 'checkoff', cardId: null });
+    }
+  });
+
+  it('only while a plan is on the desk; commands keep their meaning', () => {
+    const none = plan.map((c) => ({ ...c, review: false }));
+    expect(parseUtterance('it happened', none).kind).not.toBe('checkoff');
+    expect(parseUtterance('I did the groceries', none).kind).not.toBe('checkoff');
+    expect(parseUtterance("I'm done", plan)).toEqual({ kind: 'done' });
+    expect(parseUtterance('groceries to tomorrow', plan)).toEqual({ kind: 'move', cardId: 1, tray: 'tomorrow' });
+    // A plan card that is not named well enough is not guessed at.
+    expect(parseUtterance('I did the laundry', plan).kind).not.toBe('checkoff');
   });
 });

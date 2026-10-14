@@ -20,6 +20,8 @@ export type Utterance =
   | { kind: 'skip' }
   /** Take the assistant's suggested trays for every loose card that has one. */
   | { kind: 'accept' }
+  /** Yesterday's plan: this card (or, with null, the selected one) happened. */
+  | { kind: 'checkoff'; cardId: number | null }
   | { kind: 'empty' };
 
 // Settings by voice: every button in the settings panel has a phrase.
@@ -43,6 +45,10 @@ const SETTINGS_CLOSE = /^(?:close|hide|exit|leave)(?: the)? settings$|^close$/;
 const HELP = /^(?:help|what can i say|how does this work|show me again|tutorial|start the tutorial)$/;
 const ACCEPT =
   /^(?:(?:yes|yeah|sure|ok|okay|please)\s+)*(?:sort (?:them|it|those|these|everything|the rest)(?: for me)?|(?:use|take|accept|go with) (?:the |your |those |these )?suggestions?|sort (?:them )?as (?:you )?suggested|do what you (?:suggest|suggested|said))(?:\s+please)?$/;
+const HAPPENED =
+  /^(?:(?:yes|yeah|yep)\s+)?(?:(?:it|that|this(?: one)?)\s+)?(?:happened|did happen|got done|is done|was done)$|^(?:check (?:it|that|this) off|tick (?:it|that|this) off|i did (?:it|that)|did it|done that)$/;
+const HAPPENED_LEAD = /^(?:i\s+)?(?:did|finished|checked off|check off|ticked off|tick off)\s+(.+)$/;
+const HAPPENED_TAIL = /^(.+?)\s+(?:happened|did happen|got done|is done|was done|done)$/;
 const SKIP = /^(?:skip|skip (?:it|this|the tutorial|the tour|the guide)|no thanks)$/;
 
 // Longest phrases first, so "let it go" wins over "go".
@@ -175,6 +181,13 @@ export function parseUtterance(transcript: string, cards: readonly Card[], ai?: 
   if (HELP.test(t)) return { kind: 'help' };
   if (SKIP.test(t)) return { kind: 'skip' };
   if (ACCEPT.test(t)) return { kind: 'accept' };
+  const plan = cards.filter((c) => c.review);
+  if (plan.length) {
+    if (HAPPENED.test(t)) return { kind: 'checkoff', cardId: null };
+    const ref = (HAPPENED_LEAD.exec(t) ?? HAPPENED_TAIL.exec(t))?.[1];
+    const card = ref ? findCard(ref, plan) : null;
+    if (card) return { kind: 'checkoff', cardId: card.id };
+  }
   for (const [re, change] of PREF_PHRASES) if (re.test(t)) return { kind: 'pref', change };
   const [bare, onlyTray] = splitTray(t);
   if (onlyTray && !bare) return { kind: 'tray', tray: onlyTray };

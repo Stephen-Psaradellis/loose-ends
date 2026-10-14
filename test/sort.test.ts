@@ -116,3 +116,79 @@ describe('assistant suggestions', () => {
     expect(old!.cards.map((x) => x.hint)).toEqual([null, null]);
   });
 });
+
+describe("a new evening (yesterday's plan)", () => {
+  function evening() {
+    const s = new Sort();
+    const a = s.add('Buy groceries');
+    const b = s.add('Call mum');
+    const c = s.add('Old grudge');
+    const d = s.add('Renew insurance');
+    s.send(a.id, 'tomorrow');
+    s.send(b.id, 'tomorrow');
+    s.send(c.id, 'letgo');
+    s.send(d.id, 'week');
+    s.close('2026-10-14');
+    return { s, a, b, c, d };
+  }
+
+  it('does nothing the same day, or without a Done', () => {
+    const { s } = evening();
+    expect(s.rollover('2026-10-14')).toEqual({ review: 0, released: 0 });
+    const open = new Sort();
+    open.send(open.add('x').id, 'tomorrow');
+    expect(open.rollover('2026-10-15')).toEqual({ review: 0, released: 0 });
+    expect(open.inTray('tomorrow')).toHaveLength(1);
+  });
+
+  it('brings Tomorrow back to review, dissolves Let it go, keeps This week', () => {
+    const { s, a, b, d } = evening();
+    expect(s.rollover('2026-10-15')).toEqual({ review: 2, released: 1 });
+    expect(s.reviewing.map((c) => c.id)).toEqual([a.id, b.id]);
+    expect(s.loose.every((c) => c.hint === 'tomorrow')).toBe(true);
+    expect(s.inTray('letgo')).toHaveLength(0);
+    expect(s.inTray('week').map((c) => c.id)).toEqual([d.id]);
+    expect(s.closedDay).toBeNull();
+    // Yesterday's moves are not undoable tonight.
+    expect(s.undoAll()).toEqual([]);
+    // Once is enough: reloading the same evening does not roll again.
+    expect(s.rollover('2026-10-15')).toEqual({ review: 0, released: 0 });
+  });
+
+  it('checks off with undo, re-sorting answers too, endReview keeps the rest loose', () => {
+    const { s, a, b } = evening();
+    s.rollover('2026-10-15');
+    expect(s.checkOff(a.id)?.text).toBe('Buy groceries');
+    expect(s.get(a.id)).toBeUndefined();
+    expect(s.checkOff(a.id)).toBeUndefined();
+    s.undoAll();
+    expect(s.get(a.id)?.review).toBe(true);
+    expect(s.cards[0].id).toBe(a.id);
+    // Carrying a card to a tray answers it; undo makes it a plan card again.
+    s.send(b.id, 'tomorrow');
+    expect(s.get(b.id)?.review).toBe(false);
+    s.undoAll();
+    expect(s.get(b.id)?.review).toBe(true);
+    expect(s.endReview().map((c) => c.id)).toEqual([a.id, b.id]);
+    expect(s.reviewing).toHaveLength(0);
+    expect(s.loose).toHaveLength(2);
+    // A card not on the plan cannot be checked off.
+    expect(s.checkOff(a.id)).toBeUndefined();
+  });
+
+  it('survives a save, and old saves load with no plan', () => {
+    const { s, a } = evening();
+    const store = memoryStorage();
+    saveSort(s, store);
+    const back = loadSort(store)!;
+    expect(back.closedDay).toBe('2026-10-14');
+    back.rollover('2026-10-15');
+    saveSort(back, store);
+    expect(loadSort(store)!.reviewing.map((c) => c.id)).toContain(a.id);
+    const old = Sort.from({ v: 1, nextId: 2, cards: [{ id: 1, text: 'x', tray: 'tomorrow', hint: null }] })!;
+    expect(old.closedDay).toBeNull();
+    expect(old.rollover('2030-01-01').review).toBe(0);
+    // A review flag on a card already in a tray is nonsense and is dropped.
+    expect(Sort.from({ v: 1, nextId: 2, cards: [{ id: 1, text: 'x', tray: 'week', hint: null, review: true }] })!.reviewing).toHaveLength(0);
+  });
+});

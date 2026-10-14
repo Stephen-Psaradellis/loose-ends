@@ -6,7 +6,7 @@
 
 import type { TrayId } from './sort.js';
 
-export type Cue = 'select' | TrayId | 'loose' | 'undo' | 'done' | 'leaf' | 'listen' | 'heard' | 'nothing';
+export type Cue = 'select' | TrayId | 'loose' | 'undo' | 'done' | 'check' | 'leaf' | 'listen' | 'heard' | 'nothing';
 
 /** One tone: frequency (Hz), start offset and length (s), optional glide target (Hz) and level. */
 export interface Tone {
@@ -43,6 +43,11 @@ export const CUES: Readonly<Record<Cue, readonly Tone[]>> = {
     { f: C5, at: 0, len: 0.5 },
     { f: E5, at: 0.12, len: 0.45 },
     { f: G5, at: 0.24, len: 0.6 },
+  ],
+  // A plan card that happened: a quick bright step up, lighter than the evening's Done chord.
+  check: [
+    { f: E5, at: 0, len: 0.08, gain: 0.6 },
+    { f: C6, at: 0.07, len: 0.18, gain: 0.6 },
   ],
   leaf: [
     { f: G5, at: 0, len: 0.12, gain: 0.5 },

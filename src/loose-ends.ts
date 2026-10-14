@@ -28,7 +28,7 @@ import { loadGarden, localDay, MAX_LEAVES, saveGarden, type Garden } from './gar
 import { Guide, GUIDE_STEPS, type GuideEvent } from './guide.js';
 import { Mic, type MicState } from './mic.js';
 import { HeightFit, loadPrefs, rowMax, savePrefs, trayLayout, type PrefChange, type PrefKey, type Prefs } from './prefs.js';
-import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type TrayId } from './sort.js';
+import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type Rollover, type TrayId } from './sort.js';
 import { ButtonTag, CardTag, MicTag, TrayTag } from './sort-components.js';
 import { Sounds } from './sound.js';
 import { Speaker } from './speak.js';
@@ -52,6 +52,8 @@ const CAPTION_Y = 1.5;
 const CAPTION_W = 0.9;
 const CAPTION_H = (CAPTION_W * 192) / 1024;
 const PROMPT = "Say what's on your mind - tap the orb, or look at it.";
+const REVIEW_PROMPT = (n: number) =>
+  `Welcome back. Yesterday's plan is on the desk (${n}). Which happened? Pick one, then 'It happened' - or say it.`;
 const HELP =
   "Say a thought to add it. Or: 'dentist to tomorrow', 'sort them for me', 'undo', 'settings', 'I'm done'.";
 type Action = 'accept' | 'undo' | 'done' | 'settings' | 'close' | `pref:${PrefKey}`;
@@ -78,6 +80,7 @@ const PLANT_POS = [0.8, 0.9, -0.66] as const;
 const DEMO_CARDS = ['Call the dentist', 'Reply to Sam about Saturday', 'Fix the bike light'];
 
 /** Suggestion footers: the tray colours, darkened to read on the cream card. */
+const REVIEW_COLOR = '#2f7a3a';
 const HINT_COLORS: Record<TrayId, string> = {
   tomorrow: '#9a6a0c',
   week: '#24648c',
@@ -196,7 +199,12 @@ export class LooseEndsSystem extends createSystem({
   panelOpen = false;
   private buttonMeshes = new Map<Action, Mesh>();
   /** The hint each card was last painted with, so layout repaints only when one appears or goes. */
-  private paintedHint = new Map<number, TrayId | null>();
+  private paintedHint = new Map<number, TrayId | 'review' | null>();
+  /** Whether the Accept button currently reads 'It happened'. */
+  private reviewShown = false;
+  private opened: Rollover = { review: 0, released: 0 };
+  /** Plan cards checked off tonight; an undo takes one back. */
+  private checked = new Set<number>();
   private panelTargets: Object3D[] = [];
   private trayBoxes: Mesh[] = [];
   private rays = new WeakMap<Object3D, Object3D['raycast']>();
@@ -219,6 +227,8 @@ export class LooseEndsSystem extends createSystem({
   private buttonLabel(action: Action): string {
     if (action.startsWith('pref:')) return this.prefs.label(action.slice(5) as PrefKey);
     if (action === 'close') return 'Close settings';
+    // While yesterday's plan is on the desk, the suggestion button answers it instead.
+    if (action === 'accept' && this.reviewShown) return 'It happened';
     return BUTTONS.find((b) => b.action === action)!.label;
   }
 
@@ -237,13 +247,15 @@ export class LooseEndsSystem extends createSystem({
     const m = mesh.material as MeshBasicMaterial;
     const [bg, fg, line] = this.theme('card');
     const hint = card.tray === null && card.hint ? card.hint : null;
-    const foot = hint
-      ? { text: `suggest: ${TRAYS.find((t) => t.id === hint)!.label}`, color: line ? '#ffe600' : HINT_COLORS[hint] }
-      : null;
+    const foot = card.review
+      ? { text: "yesterday's plan - happened?", color: line ? '#ffe600' : REVIEW_COLOR }
+      : hint
+        ? { text: `suggest: ${TRAYS.find((t) => t.id === hint)!.label}`, color: line ? '#ffe600' : HINT_COLORS[hint] }
+        : null;
     m.map?.dispose();
     m.map = textTexture(card.text, bg, fg, 512, 256, line, foot);
     m.needsUpdate = true;
-    this.paintedHint.set(id, hint);
+    this.paintedHint.set(id, card.review ? 'review' : hint);
   }
 
   /** One setting changed, from any input: apply it everywhere and say so. */
@@ -329,6 +341,9 @@ export class LooseEndsSystem extends createSystem({
     // Last evening's sort comes back; a first visit gets three example cards.
     const saved = loadSort(globalThis.localStorage);
     this.sort = saved ?? new Sort();
+    // A new evening after a Done: yesterday's Tomorrow comes back to check off, let-go cards are gone.
+    this.opened = this.sort.rollover(localDay());
+    if (this.opened.review || this.opened.released) this.note(`rollover review=${this.opened.review} released=${this.opened.released}`);
     if (saved) saved.cards.forEach((c) => this.spawn(c));
     else DEMO_CARDS.forEach((text) => this.addCard(text));
     this.layout();
@@ -393,7 +408,7 @@ export class LooseEndsSystem extends createSystem({
     this.caption.raycast = () => {};
     this.world.createTransformEntity(this.caption, { parent: this.root });
     this.applyPrefs();
-    this.say(this.guide.text ?? PROMPT);
+    this.say(this.guide.text ?? (this.opened.review ? REVIEW_PROMPT(this.opened.review) : PROMPT));
     this.mic = new Mic(
       (text, cards) => this.hear(text, cards),
       (state, detail) => this.micState(state, detail),
@@ -477,7 +492,7 @@ export class LooseEndsSystem extends createSystem({
         break;
       case 'select':
         this.select(u.cardId);
-        this.say(`${name(u.cardId)} - which tray?`);
+        this.say(this.sort.get(u.cardId)?.review ? `${name(u.cardId)} - did it happen?` : `${name(u.cardId)} - which tray?`);
         break;
       case 'move':
         this.selected = null;
@@ -508,6 +523,9 @@ export class LooseEndsSystem extends createSystem({
       case 'accept':
         this.acceptHints();
         break;
+      case 'checkoff':
+        this.checkOff(u.cardId ?? this.selected);
+        break;
       case 'pref':
         this.changePref(u.change);
         break;
@@ -530,8 +548,10 @@ export class LooseEndsSystem extends createSystem({
 
   /** Any button, from a pinch, a click or a gaze dwell. */
   press(action: Action): void {
-    if (action === 'accept') this.acceptHints();
-    else if (action === 'undo' || action === 'done') this.act(action);
+    if (action === 'accept') {
+      if (this.sort.reviewing.length) this.checkOff(this.selected);
+      else this.acceptHints();
+    } else if (action === 'undo' || action === 'done') this.act(action);
     else if (action === 'settings') this.setPanel(!this.panelOpen);
     else if (action === 'close') this.setPanel(false);
     else this.changePref({ key: action.slice(5) as PrefKey, cycle: true });
@@ -541,11 +561,16 @@ export class LooseEndsSystem extends createSystem({
   act(action: 'undo' | 'done'): void {
     if (action === 'undo') {
       const back = this.sort.undoAll();
+      back.forEach((c) => this.checked.delete(c.id));
       this.layout();
       this.sounds.play(back.length ? 'undo' : 'nothing');
       this.say(back.length > 1 ? `Undone: ${back.length} cards are loose again.` : back[0] ? `Undone: ${back[0].text}` : 'Nothing to undo.');
       return;
     }
+    // Done answers the plan too: whatever was not checked off stays on the desk.
+    const carried = this.sort.endReview().length;
+    this.sort.close(localDay());
+    this.layout();
     const grew = this.garden.close(localDay());
     this.sounds.play('done');
     if (grew) this.sounds.play('leaf', 0.7);
@@ -555,7 +580,8 @@ export class LooseEndsSystem extends createSystem({
     const plan = t.length
       ? `Tomorrow: ${t.slice(0, 3).join(', ')}${t.length > 3 ? '...' : ''}.`
       : 'Nothing for tomorrow.';
-    this.say(`${plan} ${grew ? 'Your plant grew a leaf.' : 'Rest well.'}`, true);
+    const kept = carried ? ` ${carried} from yesterday stay on the desk.` : '';
+    this.say(`${plan}${kept} ${grew ? 'Your plant grew a leaf.' : 'Rest well.'}`, true);
     this.guideEvent('done');
   }
 
@@ -602,6 +628,26 @@ export class LooseEndsSystem extends createSystem({
     // The stem reaches just past the newest leaf.
     const stem = this.flower.parent!.children[0];
     stem.scale.y = Math.max(0.15, (0.07 + this.garden.leaves * 0.014) / 0.2);
+  }
+
+  /** "It happened", from a pinch on the button, a look at it, or a phrase: the plan card leaves the desk. */
+  checkOff(id: number | null): void {
+    const card = id == null ? undefined : this.sort.checkOff(id);
+    if (!card) {
+      this.sounds.play('nothing');
+      this.say(id == null ? "Pick one of yesterday's cards first - pinch it, look at it, or say its name." : "That one was not on yesterday's plan.");
+      return;
+    }
+    this.selected = null;
+    this.checked.add(card.id);
+    this.layout();
+    this.sounds.play('check');
+    const left = this.sort.reviewing.length;
+    this.say(
+      left
+        ? `Done: ${card.text}. ${left} more from yesterday.`
+        : `Done: ${card.text}. That's yesterday answered - ${this.checked.size} happened. What's on your mind tonight?`,
+    );
   }
 
   addCard(text: string, hint: TrayId | null = null): void {
@@ -732,8 +778,19 @@ export class LooseEndsSystem extends createSystem({
     saveSort(this.sort, globalThis.localStorage);
     // A suggestion shows only while its card is loose.
     for (const c of this.sort.cards) {
-      const want = c.tray === null ? c.hint : null;
+      const want = c.review ? 'review' : c.tray === null ? c.hint : null;
       if ((this.paintedHint.get(c.id) ?? null) !== want) this.paintCard(c.id);
+    }
+    // A checked-off card keeps its entity (undo can bring it back) but leaves the scene.
+    for (const [id, e] of this.cardEntities) {
+      const here = this.sort.get(id) !== undefined;
+      e.object3D!.visible = here;
+      if (!here) this.setLive(e.object3D!, false);
+    }
+    const reviewing = this.sort.reviewing.length > 0;
+    if (reviewing !== this.reviewShown && this.buttonMeshes.has('accept')) {
+      this.reviewShown = reviewing;
+      this.paintButton('accept');
     }
     // Only loose cards and the trays are gaze targets; a card already in a tray is done.
     this.gazeTargets.length = TRAYS.length;

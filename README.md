@@ -42,6 +42,13 @@ pinch and a look-at-it twin. Done reads back tomorrow's cards and grows the
 plant on the shelf by one leaf - once per evening, kept on the device - until it
 flowers after twelve evenings.
 
+The next evening opens with yesterday's plan: the Tomorrow cards come back to the
+desk marked "yesterday's plan - happened?", Let it go cards are gone, This week
+stays put. Pick a card (pinch, look, or its name) and press "It happened", or just
+say "I did the groceries" / "call mum happened"; it leaves the desk with a bright
+two-note cue. A card that did not happen can go straight back into a tray, and
+whatever is left when you say "I'm done" stays on the desk. Undo covers check-offs.
+
 Settings (the button above Undo, or say "settings") cover text size 1x / 1.5x / 2x,
 a high-contrast theme, one-hand mode (trays slide toward that hand), how long a
 look takes to count (0.8 / 1.2 / 2 s), turning look-to-choose off, and sound cues
@@ -62,7 +69,7 @@ pick a card, give it a tray, say something, press Done. Each line waits for you
 to do the thing, so it is never a wall of text. Doing a later step early skips
 ahead. Say "skip" to leave it or "help" for the list of phrases.
 
-Tests: `npm test` (vitest - the sort model, dwell timing, save/load, the voice parser, the plant, settings, the guide).
+Tests: `npm test` (vitest - the sort model, dwell timing, save/load, the voice parser, the plant, yesterday's-plan review, settings, the guide).
 
 ## Run it
 
