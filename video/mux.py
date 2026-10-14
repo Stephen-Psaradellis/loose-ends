@@ -4,6 +4,7 @@
 Narration clips start at their scene; each user line starts when the app began listening
 (that is when record.mjs fed it to the microphone); the readback is the app's own caption
 text spoken in a third voice, because headless Chromium's speechSynthesis makes no sound.
+The app's sound cues (record.mjs logs each one it played) are re-synthesised by cues.py.
 The first frames (page load, entering XR) are trimmed: output starts 0.4s before scene 1.
 Needs edge-tts + imageio-ffmpeg (Python 3.10 on this machine; edge-tts >= 7.3.1).
 """
@@ -17,6 +18,8 @@ from pathlib import Path
 
 import edge_tts
 import imageio_ffmpeg
+
+import cues
 
 HERE = Path(__file__).resolve().parent
 out = Path(sys.argv[1] if len(sys.argv) > 1 else HERE / "out")
@@ -37,6 +40,9 @@ clips = [(out / f"{i}.mp3", tl[i] + 0.25) for i in ids]
 clips += [(out / f"user_{s['id']}.mp3", tl[f"user_{s['id']}"]) for s in cfg["scenes"] if s.get("user")]
 if tl.get("readback"):
     clips.append((readback, tl["readback_at"] - 0.4))
+if tl.get("cues"):  # one track, already offset by the trim, laid at the trim point
+    track = cues.write_track([[c, at - lead] for c, at in tl["cues"] if at >= lead], end, out / "cues.wav")
+    clips.append((track, lead))
 
 cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-ss", f"{lead:.3f}", "-i", str(out / tl["video"])]
 parts, labels = [], []

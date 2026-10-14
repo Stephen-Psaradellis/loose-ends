@@ -7,9 +7,9 @@ export type GuideEvent = 'select' | 'send' | 'capture' | 'done';
 
 export const GUIDE_STEPS: readonly { waitFor: GuideEvent; text: string }[] = [
   { waitFor: 'select', text: 'Welcome. Pick a card: pinch it, click it, or just look at it.' },
-  { waitFor: 'send', text: 'Nice. Now give it a tray: pinch one, or look at it.' },
-  { waitFor: 'capture', text: "Now tap or look at the orb, and say what's on your mind." },
-  { waitFor: 'done', text: 'Sort the rest the same way. Finished? Press Done for tonight.' },
+  { waitFor: 'send', text: 'Nice. Now look down at the three trays and pinch one, or look at it.' },
+  { waitFor: 'capture', text: "Tap or look at the orb on your right, then say what's on your mind." },
+  { waitFor: 'done', text: 'Sort the rest the same way. Finished? Done for tonight is on your left.' },
 ];
 
 export class Guide {

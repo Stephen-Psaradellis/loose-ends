@@ -80,6 +80,15 @@ await page.evaluate(async (clips) => {
   };
   const HEAD = { x: 0, y: 1.42, z: 0.05 }, REST = -0.42;
   await R("set_transform", { device: "headset", position: HEAD, orientation: quat(0, REST) });
+  // Headless Chromium plays Web Audio into nothing and Playwright records no sound, so log
+  // every cue the app actually plays (when it sounds, after its own delay); mux.py re-synthesises them.
+  globalThis.__cues = [];
+  const play = le.sounds.play.bind(le.sounds);
+  le.sounds.play = (cue, delay = 0) => {
+    const ok = play(cue, delay);
+    if (ok) globalThis.__cues.push([cue, Date.now() + (delay + 0.01) * 1000]);
+    return ok;
+  };
   globalThis.__rig = {
     le, d, R,
     say(clip) { next = clip; },
@@ -171,6 +180,16 @@ await scene("intro", async () => {
 await scene("voice");
 await speak("voice");
 await scene("cards");
+console.error("hints", JSON.stringify(await page.evaluate(() => __rig.le.sort.toJSON().cards.map(c => [c.text, c.hint || null]))));
+await scene("suggest");
+await speak("suggest", async () => { await wait(1.2); });
+await scene("undo", async () => { // pinch the Undo button: every suggested card goes back at once
+  await page.evaluate(() => __rig.R("animate_to", { device: "hand-right", position: { x: 0.12, y: 1.12, z: -0.2 }, duration: 0.5 }));
+  await page.evaluate(() => __rig.point("btn:undo", 700));
+  await page.evaluate(() => __rig.pinch());
+  await wait(0.8);
+  await page.evaluate(() => __rig.R("animate_to", { device: "hand-right", position: { x: 0.2, y: 1.05, z: -0.22 }, duration: 0.6 }));
+});
 await scene("pinch", async () => {
   const card = await page.evaluate(() => __rig.cardKey("sam") || __rig.keys().find(k => k.startsWith("card:")));
   await page.evaluate(k => __rig.grab(k, "tray:week"), card);
@@ -196,6 +215,7 @@ await wait(1);
 await scene("outro", async () => { await page.evaluate(() => __rig.lookAngles(0.35, -0.4, 2500)); });
 await wait(1);
 timeline._end = now();
+timeline.cues = (await page.evaluate(() => globalThis.__cues)).map(([c, t]) => [c, +((t - t0) / 1000).toFixed(3)]);
 
 const video = page.video();
 await ctx.close();

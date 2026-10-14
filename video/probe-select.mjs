@@ -1,0 +1,37 @@
+// Pinch-select one gaze target with the emulated right hand and print the app trace.
+//   TGT=card:1 MODE=hand|controller LE_URL=... node probe-select.mjs
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { chromium } = require("C:/Users/snpsa/node_modules/playwright");
+const browser = await chromium.launch({ args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] });
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+await page.goto(process.env.LE_URL || "https://stephen-psaradellis.github.io/loose-ends/");
+await page.waitForFunction(() => globalThis.looseEnds, null, { timeout: 30000 });
+await page.waitForTimeout(2500);
+await page.mouse.click(640, 28);
+await page.waitForTimeout(2500);
+const MODE_ = process.env.MODE || "hand";
+console.log(JSON.stringify(await page.evaluate(async ([MODE, DEV, TGT]) => { const w = globalThis.looseEnds, d = globalThis.IWER_DEVICE;
+  d.primaryInputMode = MODE; await new Promise(r => setTimeout(r, 500));
+  const le = [...w.systems.values ? w.systems.values() : w.systems].find(x => x.sort && x.trace);
+  const R = (m, p) => d.remote.dispatch(m, p);
+  await R("set_transform", { device: DEV, position: { x: 0.16, y: 1.12, z: -0.2 } });
+  const card = [...le.gazeKeys].find(([o, k]) => k === TGT)[0];
+  const c = card.getWorldPosition(card.position.clone());
+  await R("look_at", { device: DEV, target: { x: c.x, y: c.y, z: c.z } });
+  await new Promise(r => setTimeout(r, 400));
+  const rs = w.player.raySpaces.right, gs = w.player.gripSpaces.right;
+  const f = v => [v.x, v.y, v.z].map(n => +n.toFixed(3));
+  const p = rs.getWorldPosition(c.clone()), q = rs.getWorldDirection(c.clone());
+  const gp = gs.getWorldPosition(c.clone()), gq = gs.getWorldDirection(c.clone());
+  const want = c.clone().sub(p).normalize();
+  const t0 = le.trace.length;
+  await R("select", { device: DEV, duration: 0.25 }); await new Promise(r => setTimeout(r, 600));
+  const t1 = le.trace.slice(t0);
+  await R("set_select_value", { device: DEV, value: 1 }); await new Promise(r => setTimeout(r, 600));
+  const held = le.queries.heldCards.entities.size, pinch = d.hands.right.pinchValue;
+  await R("set_select_value", { device: DEV, value: 0 }); await new Promise(r => setTimeout(r, 600));
+  const hov = [...le.queries.cards.entities].map(e => e.object3D?.name).length;
+  return { t1, held, pinch, t2: le.trace.slice(-4), mode: d.primaryInputMode, src: [...(d.activeSession?.inputSources ?? [])].map(s => s.handedness + ":" + (s.hand ? "hand" : "ctl") + ":" + s.targetRayMode), rayPos: f(p), rayDir: f(q), want: f(want), gripPos: f(gp), gripDir: f(gq) };
+}, [MODE_, MODE_ === "hand" ? "hand-right" : "controller-right", process.env.TGT || "card:2"])));
+await browser.close();

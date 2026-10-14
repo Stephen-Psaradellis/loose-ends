@@ -5,27 +5,54 @@
   "user_rate": "+0%",
   "note": "Narration and the user's spoken lines are synthetic speech (Microsoft neural voices). The user lines are fed to the emulator's microphone and go through the real Whisper + Llama path on our Worker.",
   "scenes": [
-    {"id": "intro",
-     "say": "The end of the day, and your head is still full of loose ends. Loose Ends is a five-minute wind-down for Quest. Say what's on your mind, then sort it. Every action works three ways: a pinch, your voice, or just looking."},
-    {"id": "voice",
-     "say": "I look at the orb to start listening, and just talk.",
-     "user": "Um, okay. I need to email Priya about the budget by Friday. And book the car in for its service. Oh, and I keep meaning to fix the leaky kitchen tap."},
-    {"id": "cards",
-     "say": "Whisper turns the ramble into text, and Llama splits it into clean cards. It only keeps a card if I actually said those words, so nothing gets invented."},
-    {"id": "pinch",
-     "say": "Hands first: reach out, pinch a card, and drop it on a tray."},
-    {"id": "gaze",
-     "say": "Or no hands at all. Look at a card until the ring fills, then look at a tray."},
-    {"id": "command",
-     "say": "Or just say it.",
-     "user": "Fix the bike light, let it go."},
-    {"id": "settings",
-     "say": "Settings work the same way. Bigger text and high contrast are one phrase away.",
-     "user": "High contrast."},
-    {"id": "done",
-     "say": "When I'm done, it reads back tomorrow's plan, and a plant on the desk grows a leaf for every evening I close out.",
-     "user": "I'm done."},
-    {"id": "outro",
-     "say": "Loose Ends. Built with Meta's Immersive Web SDK, it runs in the Quest browser with nothing to install. Five quiet minutes, then sleep."}
+    {
+      "id": "intro",
+      "say": "The end of the day, and your head is still full of loose ends. Loose Ends is a five-minute wind-down for Quest. Say what's on your mind, then sort it. Every action works three ways: a pinch, your voice, or just looking."
+    },
+    {
+      "id": "voice",
+      "say": "I look at the orb to start listening, and just talk.",
+      "user": "Um, okay. I need to email Priya about the budget by Friday. And book the car in for its service tomorrow. Oh, and the leaky kitchen tap, honestly, let it go."
+    },
+    {
+      "id": "cards",
+      "say": "Whisper turns the ramble into text, and Llama splits it into clean cards. It only keeps a card if I actually said those words, so nothing gets invented."
+    },
+    {
+      "id": "suggest",
+      "say": "Where it can tell from what I said, Llama also suggests a tray, written under the card. It never sorts on its own. If I agree, I just say so.",
+      "user": "Sort them for me."
+    },
+    {
+      "id": "undo",
+      "say": "One step for all of them, and one Undo puts them all back. Tonight I'd rather sort them myself."
+    },
+    {
+      "id": "pinch",
+      "say": "Hands first: reach out, pinch a card, and drop it on a tray."
+    },
+    {
+      "id": "gaze",
+      "say": "Or no hands at all. Look at a card until the ring fills, then look at a tray."
+    },
+    {
+      "id": "command",
+      "say": "Or just say it.",
+      "user": "Fix the bike light, let it go."
+    },
+    {
+      "id": "settings",
+      "say": "Settings work the same way. Bigger text and high contrast are one phrase away.",
+      "user": "High contrast."
+    },
+    {
+      "id": "done",
+      "say": "When I'm done, it reads back tomorrow's plan, and a plant on the desk grows a leaf for every evening I close out.",
+      "user": "I'm done."
+    },
+    {
+      "id": "outro",
+      "say": "Loose Ends. Built with Meta's Immersive Web SDK, it runs in the Quest browser with nothing to install. Five quiet minutes, then sleep."
+    }
   ]
 }
