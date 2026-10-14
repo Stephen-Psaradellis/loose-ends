@@ -18,6 +18,8 @@ export type Utterance =
   | { kind: 'settings'; open: boolean }
   | { kind: 'help' }
   | { kind: 'skip' }
+  /** Take the assistant's suggested trays for every loose card that has one. */
+  | { kind: 'accept' }
   | { kind: 'empty' };
 
 // Settings by voice: every button in the settings panel has a phrase.
@@ -37,6 +39,8 @@ const PREF_PHRASES: readonly [RegExp, PrefChange][] = [
 const SETTINGS_OPEN = /^(?:open |show )?(?:the )?settings$/;
 const SETTINGS_CLOSE = /^(?:close|hide|exit|leave)(?: the)? settings$|^close$/;
 const HELP = /^(?:help|what can i say|how does this work|show me again|tutorial|start the tutorial)$/;
+const ACCEPT =
+  /^(?:(?:yes|yeah|sure|ok|okay|please)\s+)*(?:sort (?:them|it|those|these|everything|the rest)(?: for me)?|(?:use|take|accept|go with) (?:the |your |those |these )?suggestions?|sort (?:them )?as (?:you )?suggested|do what you (?:suggest|suggested|said))(?:\s+please)?$/;
 const SKIP = /^(?:skip|skip (?:it|this|the tutorial|the tour|the guide)|no thanks)$/;
 
 // Longest phrases first, so "let it go" wins over "go".
@@ -168,6 +172,7 @@ export function parseUtterance(transcript: string, cards: readonly Card[], ai?: 
   if (SETTINGS_OPEN.test(t)) return { kind: 'settings', open: true };
   if (HELP.test(t)) return { kind: 'help' };
   if (SKIP.test(t)) return { kind: 'skip' };
+  if (ACCEPT.test(t)) return { kind: 'accept' };
   for (const [re, change] of PREF_PHRASES) if (re.test(t)) return { kind: 'pref', change };
   const [bare, onlyTray] = splitTray(t);
   if (onlyTray && !bare) return { kind: 'tray', tray: onlyTray };

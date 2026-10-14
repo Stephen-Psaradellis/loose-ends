@@ -51,10 +51,11 @@ const CAPTION_W = 0.9;
 const CAPTION_H = (CAPTION_W * 192) / 1024;
 const PROMPT = "Say what's on your mind - tap the orb, or look at it.";
 const HELP =
-  "Say a thought to add it. Or: 'dentist to tomorrow', 'undo', 'settings', 'bigger text', 'I'm done'.";
-type Action = 'undo' | 'done' | 'settings' | 'close' | `pref:${PrefKey}`;
+  "Say a thought to add it. Or: 'dentist to tomorrow', 'sort them for me', 'undo', 'settings', 'I'm done'.";
+type Action = 'accept' | 'undo' | 'done' | 'settings' | 'close' | `pref:${PrefKey}`;
 /** Buttons left of the trays: every voice command also has a pinch and a gaze target. */
 const BUTTONS: readonly { action: Action; label: string; y: number }[] = [
+  { action: 'accept', label: 'Sort as suggested', y: 1.38 },
   { action: 'settings', label: 'Settings', y: 1.27 },
   { action: 'undo', label: 'Undo', y: 1.16 },
   { action: 'done', label: 'Done for tonight', y: 1.05 },
@@ -74,13 +75,28 @@ const NO_RAY = () => {};
 const PLANT_POS = [0.8, 0.9, -0.66] as const;
 const DEMO_CARDS = ['Call the dentist', 'Reply to Sam about Saturday', 'Fix the bike light'];
 
+/** Suggestion footers: the tray colours, darkened to read on the cream card. */
+const HINT_COLORS: Record<TrayId, string> = {
+  tomorrow: '#9a6a0c',
+  week: '#24648c',
+  letgo: '#5d5270',
+};
+
 const TRAY_COLORS: Record<TrayId, string> = {
   tomorrow: '#e8b04a',
   week: '#5fa8d3',
   letgo: '#8a7f99',
 };
 
-function textTexture(text: string, bg: string, fg: string, w = 512, h = 256, outline = ''): CanvasTexture {
+function textTexture(
+  text: string,
+  bg: string,
+  fg: string,
+  w = 512,
+  h = 256,
+  outline = '',
+  foot: { text: string; color: string } | null = null,
+): CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -112,8 +128,15 @@ function textTexture(text: string, bg: string, fg: string, w = 512, h = 256, out
     }
   }
   if (line) lines.push(line);
-  const shown = lines.slice(0, 3);
-  shown.forEach((l, i) => g.fillText(l, w / 2, h / 2 + (i - (shown.length - 1) / 2) * 54));
+  // A footer (the assistant's suggestion) takes the bottom band, so the text keeps two lines.
+  const shown = lines.slice(0, foot ? 2 : 3);
+  const mid = foot ? h / 2 - 24 : h / 2;
+  shown.forEach((l, i) => g.fillText(l, w / 2, mid + (i - (shown.length - 1) / 2) * 54));
+  if (foot) {
+    g.fillStyle = foot.color;
+    g.font = `${outline ? 700 : 600} 34px system-ui, sans-serif`;
+    g.fillText(foot.text, w / 2, h - 42);
+  }
   const tex = new CanvasTexture(canvas);
   tex.colorSpace = SRGBColorSpace;
   return tex;
@@ -165,6 +188,8 @@ export class LooseEndsSystem extends createSystem({
   guide!: Guide;
   panelOpen = false;
   private buttonMeshes = new Map<Action, Mesh>();
+  /** The hint each card was last painted with, so layout repaints only when one appears or goes. */
+  private paintedHint = new Map<number, TrayId | null>();
   private panelTargets: Object3D[] = [];
   private trayBoxes: Mesh[] = [];
   private rays = new WeakMap<Object3D, Object3D['raycast']>();
@@ -204,9 +229,14 @@ export class LooseEndsSystem extends createSystem({
     if (!card || !mesh) return;
     const m = mesh.material as MeshBasicMaterial;
     const [bg, fg, line] = this.theme('card');
+    const hint = card.tray === null && card.hint ? card.hint : null;
+    const foot = hint
+      ? { text: `suggest: ${TRAYS.find((t) => t.id === hint)!.label}`, color: line ? '#ffe600' : HINT_COLORS[hint] }
+      : null;
     m.map?.dispose();
-    m.map = textTexture(card.text, bg, fg, 512, 256, line);
+    m.map = textTexture(card.text, bg, fg, 512, 256, line, foot);
     m.needsUpdate = true;
+    this.paintedHint.set(id, hint);
   }
 
   /** One setting changed, from any input: apply it everywhere and say so. */
@@ -456,11 +486,17 @@ export class LooseEndsSystem extends createSystem({
         this.send(id, u.tray);
         break;
       }
-      case 'capture':
-        u.cards.forEach((c) => this.addCard(c.text));
+      case 'capture': {
+        u.cards.forEach((c) => this.addCard(c.text, c.trayHint));
         this.layout();
-        this.say(u.cards.length === 1 ? `Added: ${u.cards[0].text}` : `Added ${u.cards.length} cards.`);
+        const added = u.cards.length === 1 ? `Added: ${u.cards[0].text}.` : `Added ${u.cards.length} cards.`;
+        const hinted = u.cards.filter((c) => c.trayHint).length;
+        this.say(hinted ? `${added} I marked where ${hinted === 1 ? 'it' : 'they'} might go - say 'sort them for me' if that looks right.` : added);
         this.guideEvent('capture');
+        break;
+      }
+      case 'accept':
+        this.acceptHints();
         break;
       case 'pref':
         this.changePref(u.change);
@@ -484,7 +520,8 @@ export class LooseEndsSystem extends createSystem({
 
   /** Any button, from a pinch, a click or a gaze dwell. */
   press(action: Action): void {
-    if (action === 'undo' || action === 'done') this.act(action);
+    if (action === 'accept') this.acceptHints();
+    else if (action === 'undo' || action === 'done') this.act(action);
     else if (action === 'settings') this.setPanel(!this.panelOpen);
     else if (action === 'close') this.setPanel(false);
     else this.changePref({ key: action.slice(5) as PrefKey, cycle: true });
@@ -493,9 +530,9 @@ export class LooseEndsSystem extends createSystem({
   /** Undo and Done: the same call from voice, a pinch on the button, or a gaze dwell. */
   act(action: 'undo' | 'done'): void {
     if (action === 'undo') {
-      const c = this.sort.undo();
+      const back = this.sort.undoAll();
       this.layout();
-      this.say(c ? `Undone: ${c.text}` : 'Nothing to undo.');
+      this.say(back.length > 1 ? `Undone: ${back.length} cards are loose again.` : back[0] ? `Undone: ${back[0].text}` : 'Nothing to undo.');
       return;
     }
     const grew = this.garden.close(localDay());
@@ -554,8 +591,22 @@ export class LooseEndsSystem extends createSystem({
     stem.scale.y = Math.max(0.15, (0.07 + this.garden.leaves * 0.014) / 0.2);
   }
 
-  addCard(text: string): void {
-    this.spawn(this.sort.add(text));
+  addCard(text: string, hint: TrayId | null = null): void {
+    this.spawn(this.sort.add(text, hint));
+  }
+
+  /** The assistant proposes, the user disposes: one act (pinch, voice or a look) takes every suggestion, one Undo reverses it. */
+  acceptHints(): void {
+    const moved = this.sort.acceptHints();
+    if (!moved.length) {
+      this.say('No suggestions on the desk right now.');
+      return;
+    }
+    this.selected = null;
+    this.layout();
+    const counts = TRAYS.map((t) => [t.label, moved.filter((c) => c.tray === t.id).length] as const).filter(([, n]) => n);
+    this.say(`Sorted ${counts.map(([label, n]) => `${n} to ${label}`).join(', ')}. Undo puts them back.`);
+    this.guideEvent('send');
   }
 
   private spawn(card: Card): void {
@@ -632,7 +683,7 @@ export class LooseEndsSystem extends createSystem({
   }
 
   undo(): void {
-    this.sort.undo();
+    this.sort.undoAll();
     this.layout();
   }
 
@@ -645,6 +696,11 @@ export class LooseEndsSystem extends createSystem({
   /** Put every card where the model says it lives, and keep what the evening sorted. */
   layout(): void {
     saveSort(this.sort, globalThis.localStorage);
+    // A suggestion shows only while its card is loose.
+    for (const c of this.sort.cards) {
+      const want = c.tray === null ? c.hint : null;
+      if ((this.paintedHint.get(c.id) ?? null) !== want) this.paintCard(c.id);
+    }
     // Only loose cards and the trays are gaze targets; a card already in a tray is done.
     this.gazeTargets.length = TRAYS.length;
     this.gazeTargets.push(...this.fixedTargets);

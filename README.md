@@ -28,6 +28,11 @@ it into short cards ("um, the leaky kitchen tap, let it go" -> "Fix the leaky
 kitchen tap"). The app keeps the model's cards only if every one is built from
 words you said; one invented card and it uses its own rules split instead.
 
+The assistant also suggests where each new card might go ("call the plumber
+tomorrow" -> a card marked *suggest: Tomorrow*), but it never sorts on its own.
+"Sort them for me", the Sort as suggested button, or a look at it takes every
+suggestion at once, and one Undo puts them all back.
+
 Undo and "Done for tonight" are also buttons, so every spoken command has a
 pinch and a look-at-it twin. Done reads back tomorrow's cards and grows the
 plant on the shelf by one leaf - once per evening, kept on the device - until it

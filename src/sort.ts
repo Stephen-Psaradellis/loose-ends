@@ -13,17 +13,20 @@ export interface Card {
   id: number;
   text: string;
   tray: TrayId | null;
+  /** The assistant's suggested tray, shown on a loose card until the user sorts it. */
+  hint: TrayId | null;
 }
 
 type Move = { cardId: number; from: TrayId | null };
 
 export class Sort {
   readonly cards: Card[] = [];
-  private undoStack: Move[] = [];
+  /** One entry per user act: a single move, or every card a 'sort as suggested' moved. */
+  private undoStack: Move[][] = [];
   private nextId = 1;
 
-  add(text: string): Card {
-    const card: Card = { id: this.nextId++, text: text.trim(), tray: null };
+  add(text: string, hint: TrayId | null = null): Card {
+    const card: Card = { id: this.nextId++, text: text.trim(), tray: null, hint };
     this.cards.push(card);
     return card;
   }
@@ -36,17 +39,41 @@ export class Sort {
   send(id: number, tray: TrayId | null): boolean {
     const card = this.get(id);
     if (!card || card.tray === tray) return false;
-    this.undoStack.push({ cardId: id, from: card.tray });
+    this.undoStack.push([{ cardId: id, from: card.tray }]);
     card.tray = tray;
     return true;
   }
 
+  /** Loose cards that carry a suggestion. */
+  get hinted(): Card[] {
+    return this.cards.filter((c) => c.tray === null && c.hint !== null);
+  }
+
+  /** Sort every hinted loose card into its suggested tray, as ONE undoable act. */
+  acceptHints(): Card[] {
+    const moved = this.hinted;
+    if (!moved.length) return [];
+    this.undoStack.push(moved.map((c) => ({ cardId: c.id, from: c.tray })));
+    moved.forEach((c) => (c.tray = c.hint));
+    return moved;
+  }
+
+  /** Reverse the last act; every card it moved goes back. */
+  undoAll(): Card[] {
+    const act = this.undoStack.pop() ?? [];
+    const back: Card[] = [];
+    for (const move of [...act].reverse()) {
+      const card = this.get(move.cardId);
+      if (card) {
+        card.tray = move.from;
+        back.push(card);
+      }
+    }
+    return back;
+  }
+
   undo(): Card | undefined {
-    const move = this.undoStack.pop();
-    if (!move) return undefined;
-    const card = this.get(move.cardId);
-    if (card) card.tray = move.from;
-    return card;
+    return this.undoAll()[0];
   }
 
   inTray(tray: TrayId | null): Card[] {
@@ -72,7 +99,9 @@ export class Sort {
     for (const c of d.cards) {
       if (!c || typeof c.id !== 'number' || typeof c.text !== 'string') return null;
       if (c.tray !== null && !ids.has(c.tray)) return null;
-      sort.cards.push({ id: c.id, text: c.text, tray: c.tray });
+      // Saves from before hints existed have none; an unknown hint is dropped, not fatal.
+      const hint = ids.has(c.hint as TrayId) ? (c.hint as TrayId) : null;
+      sort.cards.push({ id: c.id, text: c.text, tray: c.tray, hint });
     }
     sort.nextId = Math.max(d.nextId, ...sort.cards.map((c) => c.id + 1), 1);
     return sort;

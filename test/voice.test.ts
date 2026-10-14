@@ -3,9 +3,9 @@ import type { Card } from '../src/sort.js';
 import { findCard, groundedCards, parseUtterance, splitThoughts, splitTray } from '../src/voice.js';
 
 const desk: Card[] = [
-  { id: 1, text: 'Buy groceries', tray: null },
-  { id: 2, text: 'Call mum about Sunday', tray: null },
-  { id: 3, text: 'Renew car insurance', tray: 'week' },
+  { id: 1, text: 'Buy groceries', tray: null, hint: null },
+  { id: 2, text: 'Call mum about Sunday', tray: null, hint: null },
+  { id: 3, text: 'Renew car insurance', tray: 'week', hint: null },
 ];
 
 describe('voice rules parser', () => {
@@ -105,5 +105,18 @@ describe('grounded LLM card split', () => {
       cardId: 1,
       tray: 'tomorrow',
     });
+  });
+});
+
+describe('accepting suggestions by voice', () => {
+  it('hears the accept phrases as one command, not as new cards', () => {
+    for (const said of ['Sort them for me.', 'yes, sort them', 'use the suggestions', 'go with your suggestion', 'sort as suggested', 'do what you suggested please', 'okay sort everything for me']) {
+      expect(parseUtterance(said, desk)).toEqual({ kind: 'accept' });
+    }
+  });
+
+  it('leaves real thoughts that mention sorting alone', () => {
+    expect(parseUtterance('sort the recycling', desk).kind).toBe('capture');
+    expect(parseUtterance('sort out the tax letters this week', desk).kind).toBe('capture');
   });
 });

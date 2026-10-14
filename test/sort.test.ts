@@ -90,3 +90,29 @@ describe('Dwell', () => {
     expect(d.progress).toBe(0);
   });
 });
+
+describe('assistant suggestions', () => {
+  it('sorts every hinted loose card as one act, and one undo puts them all back', () => {
+    const s = new Sort();
+    const a = s.add('Call the dentist', 'tomorrow');
+    const b = s.add('Clear the garage', 'week');
+    const c = s.add('No hint here');
+    const d = s.add('Already sorted', 'letgo');
+    s.send(d.id, 'tomorrow');
+    expect(s.hinted.map((x) => x.id)).toEqual([a.id, b.id]);
+    expect(s.acceptHints().map((x) => x.id)).toEqual([a.id, b.id]);
+    expect([a.tray, b.tray, c.tray, d.tray]).toEqual(['tomorrow', 'week', null, 'tomorrow']);
+    expect(s.acceptHints()).toEqual([]);
+    expect(s.undoAll().map((x) => x.id).sort()).toEqual([a.id, b.id]);
+    expect([a.tray, b.tray, d.tray]).toEqual([null, null, 'tomorrow']);
+    expect(s.undo()?.id).toBe(d.id);
+  });
+
+  it('keeps hints across a save and drops unknown ones from older saves', () => {
+    const s = new Sort();
+    s.add('Water the plants', 'week');
+    expect(Sort.from(JSON.parse(JSON.stringify(s.toJSON())))!.cards[0].hint).toBe('week');
+    const old = Sort.from({ v: 1, nextId: 3, cards: [{ id: 1, text: 'x', tray: null }, { id: 2, text: 'y', tray: null, hint: 'someday' }] });
+    expect(old!.cards.map((x) => x.hint)).toEqual([null, null]);
+  });
+});
