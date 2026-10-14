@@ -9,6 +9,10 @@ export const MODEL = '@cf/openai/whisper-large-v3-turbo';
 export const MAX_BYTES = 2_000_000; // ~60 s of opus; a thought is 2-15 s
 export const SPLIT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 export const SPLIT_MS = 4000;
+// Read-back voice for browsers with no speechSynthesis voices (Quest Browser is not documented
+// to have any). Text in, audio out (melotts answers WAV); the text is not stored or logged.
+export const TTS_MODEL = '@cf/myshell-ai/melotts';
+export const TTS_MAX = 400;
 const TRAYS = ['tomorrow', 'week', 'letgo'];
 const CARD_SCHEMA = {
   type: 'object',
@@ -107,6 +111,19 @@ export async function splitCards(env, text, ms = SPLIT_MS) {
   }
 }
 
+/** Workers AI TTS answers base64 in {audio}, or raw bytes / a stream; normalise to bytes. */
+export async function ttsBytes(out) {
+  if (!out) return null;
+  if (typeof out.audio === 'string') return Uint8Array.from(atob(out.audio), (c) => c.charCodeAt(0));
+  if (out instanceof Uint8Array) return out;
+  if (out instanceof ArrayBuffer) return new Uint8Array(out);
+  if (typeof out.getReader === 'function') return new Uint8Array(await new Response(out).arrayBuffer());
+  return null;
+}
+
+/** RIFF....WAVE is WAV; anything else from the model is MP3. */
+export const audioType = (b) => (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 ? 'audio/wav' : 'audio/mpeg');
+
 export async function handle(request, env) {
   const origin = request.headers.get('Origin');
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
@@ -119,6 +136,19 @@ export async function handle(request, env) {
     const t0 = Date.now();
     const cards = await splitCards(env, text, Math.min(Number(body?.ms) || SPLIT_MS, 15000));
     return json({ cards, ms: Date.now() - t0 }, 200, origin);
+  }
+  if (path === '/tts' && request.method === 'POST') {
+    if (origin && !allowOrigin(origin)) return json({ error: 'origin not allowed' }, 403, origin);
+    const body = await request.json().catch(() => ({}));
+    const text = String(body?.text ?? '').trim().slice(0, TTS_MAX);
+    if (!text) return json({ error: 'no text' }, 400, origin);
+    try {
+      const bytes = await ttsBytes(await env.AI.run(TTS_MODEL, { prompt: text, lang: 'en' }));
+      if (!bytes || bytes.length < 100) return json({ error: 'no audio' }, 502, origin);
+      return new Response(bytes, { status: 200, headers: { 'Content-Type': audioType(bytes), ...cors(origin) } });
+    } catch (e) {
+      return json({ error: 'speech service busy', detail: String(e?.message || e).slice(0, 200) }, 502, origin);
+    }
   }
   if (path !== '/stt') return json({ error: 'not found' }, 404, origin);
   if (request.method !== 'POST') return json({ error: 'POST only' }, 405, origin);

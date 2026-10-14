@@ -31,6 +31,7 @@ import { HeightFit, loadPrefs, rowMax, savePrefs, trayLayout, type PrefChange, t
 import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type TrayId } from './sort.js';
 import { ButtonTag, CardTag, MicTag, TrayTag } from './sort-components.js';
 import { Sounds } from './sound.js';
+import { Speaker } from './speak.js';
 import { parseUtterance } from './voice.js';
 
 // Seated layout, metres. The viewer's head sits near (0, 1.2-1.6, 0) facing -z.
@@ -190,6 +191,7 @@ export class LooseEndsSystem extends createSystem({
   private flower!: Mesh;
   prefs!: Prefs;
   readonly sounds = new Sounds();
+  readonly speaker = new Speaker();
   guide!: Guide;
   panelOpen = false;
   private buttonMeshes = new Map<Action, Mesh>();
@@ -439,7 +441,7 @@ export class LooseEndsSystem extends createSystem({
     });
   }
 
-  /** Show a line on the caption strip (and speak it when the browser can). */
+  /** Show a line on the caption strip (and speak it aloud when asked). */
   say(text: string, speak = false): void {
     if (text === this.captionText) return;
     this.captionText = text;
@@ -448,10 +450,8 @@ export class LooseEndsSystem extends createSystem({
     const [bg, fg] = this.theme('caption');
     m.map = textTexture(text, bg, fg, 1024, 192);
     m.needsUpdate = true;
-    if (speak && globalThis.speechSynthesis) {
-      speechSynthesis.cancel();
-      speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-    }
+    // The browser's voice when it has one, else our Worker's (Quest Browser documents none).
+    if (speak) void this.speaker.speak(text).then((r) => this.note(`speak ${r}`));
   }
 
   private micState(state: MicState, detail?: string): void {

@@ -27,6 +27,10 @@ ramble, the same Worker asks Llama 3.3 (Workers AI, JSON schema output) to split
 it into short cards ("um, the leaky kitchen tap, let it go" -> "Fix the leaky
 kitchen tap"). The app keeps the model's cards only if every one is built from
 words you said; one invented card and it uses its own rules split instead.
+The read-back uses the browser's own voice when it has one; when it has none
+(the Quest Browser documents none), the same Worker speaks the line with Workers
+AI text-to-speech (`/tts`, nothing stored) and the app plays it through Web Audio
+(`src/speak.ts`; `video/probe-speak.mjs NO_VOICES=1` proves that route).
 
 The assistant also suggests where each new card might go ("call the plumber
 tomorrow" -> a card marked *suggest: Tomorrow*), but it never sorts on its own.
