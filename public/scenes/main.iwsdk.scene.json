@@ -1,0 +1,99 @@
+{
+  "version": "iwsdk.scene.v1",
+  "units": "meters",
+  "components": {
+    "com.iwsdk.components.DomeGradient": {
+      "sky": [
+        0.08,
+        0.09,
+        0.16,
+        1
+      ],
+      "equator": [
+        0.22,
+        0.18,
+        0.24,
+        1
+      ],
+      "ground": [
+        0.12,
+        0.1,
+        0.1,
+        1
+      ],
+      "intensity": 0.7
+    },
+    "com.iwsdk.components.IBLGradient": {
+      "sky": [
+        0.08,
+        0.09,
+        0.16,
+        1
+      ],
+      "equator": [
+        0.22,
+        0.18,
+        0.24,
+        1
+      ],
+      "ground": [
+        0.12,
+        0.1,
+        0.1,
+        1
+      ],
+      "intensity": 0.7
+    }
+  },
+  "resources": {},
+  "nodes": [
+    {
+      "id": "environment",
+      "name": "Environment",
+      "content": {
+        "type": "asset",
+        "asset": "environment-desk"
+      },
+      "transform": {
+        "position": [
+          0,
+          -0.106921583,
+          0
+        ],
+        "rotationDeg": [
+          0,
+          180,
+          0
+        ]
+      },
+      "components": {
+        "LocomotionEnvironment": {}
+      }
+    },
+    {
+      "id": "welcome-panel",
+      "name": "Welcome Panel",
+      "content": {
+        "type": "asset",
+        "asset": "welcome-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          1.6,
+          -2
+        ],
+        "scale": 0.4
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "top": "20px",
+          "left": "20px",
+          "width": "25vw",
+          "height": "40%"
+        }
+      }
+    }
+  ]
+}
