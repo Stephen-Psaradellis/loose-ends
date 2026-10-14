@@ -7,12 +7,12 @@ export const DWELL_TIMES = [0.8, 1.2, 2] as const;
 export const HANDS = ['both', 'left', 'right'] as const;
 
 export type Hand = (typeof HANDS)[number];
-export type PrefKey = 'text' | 'contrast' | 'hand' | 'dwell' | 'gaze';
+export type PrefKey = 'text' | 'contrast' | 'hand' | 'dwell' | 'gaze' | 'sound';
 
 /** A change from any input: step through a list, or set a value outright. */
 export type PrefChange =
   | { key: 'text' | 'dwell'; step: 1 | -1 }
-  | { key: 'contrast' | 'gaze'; value: boolean }
+  | { key: 'contrast' | 'gaze' | 'sound'; value: boolean }
   | { key: 'hand'; value: Hand }
   | { key: PrefKey; cycle: true };
 
@@ -28,6 +28,8 @@ export class Prefs {
   hand: Hand = 'both';
   dwell: number = 1.2;
   gaze = true;
+  /** Sound cues: a different tone per tray, so where a card went is heard as well as seen. */
+  sound = true;
   /** The first-visit guide has been finished or skipped. */
   guided = false;
 
@@ -60,12 +62,14 @@ export class Prefs {
         return `Look time ${this.dwell} s`;
       case 'gaze':
         return `Look to choose ${this.gaze ? 'on' : 'off'}`;
+      case 'sound':
+        return `Sounds ${this.sound ? 'on' : 'off'}`;
     }
   }
 
   toJSON(): SavedPrefs {
-    const { text, contrast, hand, dwell, gaze, guided } = this;
-    return { v: 1, text, contrast, hand, dwell, gaze, guided };
+    const { text, contrast, hand, dwell, gaze, sound, guided } = this;
+    return { v: 1, text, contrast, hand, dwell, gaze, sound, guided };
   }
 
   /** Anything unknown or out of range falls back to its default, field by field. */
@@ -78,6 +82,7 @@ export class Prefs {
     if ((HANDS as readonly unknown[]).includes(d.hand)) p.hand = d.hand as Hand;
     if (typeof d.contrast === 'boolean') p.contrast = d.contrast;
     if (typeof d.gaze === 'boolean') p.gaze = d.gaze;
+    if (typeof d.sound === 'boolean') p.sound = d.sound;
     if (typeof d.guided === 'boolean') p.guided = d.guided;
     return p;
   }
@@ -90,6 +95,8 @@ export interface SavedPrefs {
   hand: Hand;
   dwell: number;
   gaze: boolean;
+  /** Absent in saves made before sound cues existed; those load with sound on. */
+  sound?: boolean;
   guided: boolean;
 }
 

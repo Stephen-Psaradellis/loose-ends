@@ -30,6 +30,7 @@ import { Mic, type MicState } from './mic.js';
 import { loadPrefs, rowMax, savePrefs, trayLayout, type PrefChange, type PrefKey, type Prefs } from './prefs.js';
 import { loadSort, saveSort, Sort, TRAYS, trayAt, type Card, type TrayId } from './sort.js';
 import { ButtonTag, CardTag, MicTag, TrayTag } from './sort-components.js';
+import { Sounds } from './sound.js';
 import { parseUtterance } from './voice.js';
 
 // Seated layout, metres. The viewer's head sits near (0, 1.2-1.6, 0) facing -z.
@@ -62,7 +63,7 @@ const BUTTONS: readonly { action: Action; label: string; y: number }[] = [
 ];
 const BUTTON_X = -0.62;
 /** The settings panel replaces the loose cards while open: 2 rows of 3, all three inputs. */
-const PANEL: readonly Action[] = ['pref:text', 'pref:contrast', 'pref:hand', 'pref:dwell', 'pref:gaze', 'close'];
+const PANEL: readonly Action[] = ['pref:text', 'pref:contrast', 'pref:hand', 'pref:dwell', 'pref:gaze', 'pref:sound', 'close'];
 const PANEL_W = 0.22;
 const ALL_BUTTONS: readonly Action[] = [...BUTTONS.map((b) => b.action), ...PANEL];
 /** Theme colours [background, text, outline] per surface; high contrast is pure black/white/yellow. */
@@ -185,6 +186,7 @@ export class LooseEndsSystem extends createSystem({
   private leafMeshes: Mesh[] = [];
   private flower!: Mesh;
   prefs!: Prefs;
+  readonly sounds = new Sounds();
   guide!: Guide;
   panelOpen = false;
   private buttonMeshes = new Map<Action, Mesh>();
@@ -249,6 +251,7 @@ export class LooseEndsSystem extends createSystem({
 
   private applyPrefs(): void {
     this.gazeDwell = this.prefs.gaze;
+    this.sounds.enabled = this.prefs.sound;
     if (this.dwell.seconds !== this.prefs.dwell) this.dwell = new Dwell(this.prefs.dwell);
     const { shift, gap } = trayLayout(this.prefs.hand);
     this.trayBoxes.forEach((box, i) => {
@@ -450,6 +453,8 @@ export class LooseEndsSystem extends createSystem({
     this.note(`mic ${state}`);
     const m = this.orb.material as MeshStandardMaterial;
     m.emissive.set(state === 'listening' ? '#c0392b' : state === 'thinking' ? '#5fa8d3' : '#3a2a10');
+    if (state === 'listening') this.sounds.play('listen');
+    else if (state === 'thinking') this.sounds.play('heard');
     if (state === 'listening') this.say('Listening... tap or look at the orb again when you are done.');
     else if (state === 'thinking') this.say('Writing that down...');
     else if (state === 'error') this.say(detail ?? 'Voice did not work - pinch or look instead.');
@@ -532,10 +537,13 @@ export class LooseEndsSystem extends createSystem({
     if (action === 'undo') {
       const back = this.sort.undoAll();
       this.layout();
+      this.sounds.play(back.length ? 'undo' : 'nothing');
       this.say(back.length > 1 ? `Undone: ${back.length} cards are loose again.` : back[0] ? `Undone: ${back[0].text}` : 'Nothing to undo.');
       return;
     }
     const grew = this.garden.close(localDay());
+    this.sounds.play('done');
+    if (grew) this.sounds.play('leaf', 0.7);
     saveGarden(this.garden, globalThis.localStorage);
     this.showPlant();
     const t = this.sort.inTray('tomorrow').map((c) => c.text);
@@ -599,11 +607,13 @@ export class LooseEndsSystem extends createSystem({
   acceptHints(): void {
     const moved = this.sort.acceptHints();
     if (!moved.length) {
+      this.sounds.play('nothing');
       this.say('No suggestions on the desk right now.');
       return;
     }
     this.selected = null;
     this.layout();
+    this.sounds.play(moved[0].tray ?? 'loose');
     const counts = TRAYS.map((t) => [t.label, moved.filter((c) => c.tray === t.id).length] as const).filter(([, n]) => n);
     this.say(`Sorted ${counts.map(([label, n]) => `${n} to ${label}`).join(', ')}. Undo puts them back.`);
     this.guideEvent('send');
@@ -632,7 +642,10 @@ export class LooseEndsSystem extends createSystem({
     this.selectedBy = by;
     this.selectedAt = this.now;
     this.layout();
-    if (this.selected != null) this.guideEvent('select');
+    if (this.selected != null) {
+      this.sounds.play('select');
+      this.guideEvent('select');
+    }
   }
 
   update(delta: number): void {
@@ -679,6 +692,7 @@ export class LooseEndsSystem extends createSystem({
   send(id: number, tray: TrayId | null): void {
     this.sort.send(id, tray);
     this.layout();
+    this.sounds.play(tray ?? 'loose');
     if (tray) this.guideEvent('send');
   }
 

@@ -35,6 +35,8 @@ const PREF_PHRASES: readonly [RegExp, PrefChange][] = [
   [/^(?:faster|shorter|quicker) (?:look|looking|gaze|dwell)(?: time)?$|^(?:look|gaze|dwell) faster$/, { key: 'dwell', step: -1 }],
   [/^(?:gaze|looking|look to choose|head control) off$|^(?:stop|turn off) (?:gaze|looking|look to choose)$/, { key: 'gaze', value: false }],
   [/^(?:gaze|looking|look to choose|head control) on$|^turn on (?:gaze|looking|look to choose)$/, { key: 'gaze', value: true }],
+  [/^(?:sounds?|chimes?|tones?)(?: on)?$|^turn on (?:the )?(?:sounds?|chimes?)$|^unmute$/, { key: 'sound', value: true }],
+  [/^(?:sounds?|chimes?|tones?) off$|^turn off (?:the )?(?:sounds?|chimes?)$|^mute$|^no sounds?$/, { key: 'sound', value: false }],
 ];
 const SETTINGS_OPEN = /^(?:open |show )?(?:the )?settings$/;
 const SETTINGS_CLOSE = /^(?:close|hide|exit|leave)(?: the)? settings$|^close$/;

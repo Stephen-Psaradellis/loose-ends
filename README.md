@@ -40,11 +40,18 @@ flowers after twelve evenings.
 
 Settings (the button above Undo, or say "settings") cover text size 1x / 1.5x / 2x,
 a high-contrast theme, one-hand mode (trays slide toward that hand), how long a
-look takes to count (0.8 / 1.2 / 2 s) and turning look-to-choose off. Each one
-is a button you can pinch or look at, and a phrase you can say ("bigger text",
-"high contrast", "left handed", "slower gaze", "gaze off"). The look-to-choose
+look takes to count (0.8 / 1.2 / 2 s), turning look-to-choose off, and sound cues
+on or off. Each one is a button you can pinch or look at, and a phrase you can say
+("bigger text", "high contrast", "left handed", "slower gaze", "gaze off", "mute"). The look-to-choose
 switch itself ignores looks, so nobody can switch off the only input they have
 by accident. Settings are kept on the device.
+
+Sound cues: every act also plays a short tone, made on the device with Web Audio
+(no files, nothing sent). Each tray has its own: Tomorrow rises, This week holds
+one note, Let it go falls away - so where a card went can be heard, not only seen.
+Select, Undo, Done, the plant's new leaf and the voice orb have cues too, all
+under the read-back voice. `video/probe-sound.mjs` lists the tones each act
+schedules in a real browser.
 
 The first visit starts a guide, one line at a time on the caption strip:
 pick a card, give it a tray, say something, press Done. Each line waits for you
