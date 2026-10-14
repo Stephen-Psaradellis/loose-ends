@@ -5,7 +5,7 @@
 //   LE_URL=... SHOTS=dir node probe-first5.mjs
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { chromium } = require("C:/Users/snpsa/node_modules/playwright");
+const { chromium } = require(process.env.PLAYWRIGHT || "C:/Users/snpsa/node_modules/playwright");
 const URL_ = process.env.LE_URL || "https://stephen-psaradellis.github.io/loose-ends/";
 const SHOTS = process.env.SHOTS || new URL("./out/", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
 const browser = await chromium.launch({ args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] });

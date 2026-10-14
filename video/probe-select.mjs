@@ -2,7 +2,7 @@
 //   TGT=card:1 MODE=hand|controller LE_URL=... node probe-select.mjs
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { chromium } = require("C:/Users/snpsa/node_modules/playwright");
+const { chromium } = require(process.env.PLAYWRIGHT || "C:/Users/snpsa/node_modules/playwright");
 const browser = await chromium.launch({ args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
 await page.goto(process.env.LE_URL || "https://stephen-psaradellis.github.io/loose-ends/");
